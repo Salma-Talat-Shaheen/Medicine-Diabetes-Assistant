@@ -76,7 +76,7 @@ def _load_ocr_index() -> None:
             ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
         except Exception as inner_exc:
             # إذا ظهر خطأ '_type' أو خطأ متصل بقاعدة البيانات القديمة، يتم حذف مجلد chroma_db وإعادة الفهرسة فوراً
-            if "_type" in str(inner_exc) or "chroma" in str(inner_exc).lower():
+            if "_type" in str(inner_exc) or "chroma" in str(inner_exc).lower() or "tenant" in str(inner_exc).lower():
                 print(f"[OCR] Detected incompatible vector store format ({inner_exc}). Clearing chroma_db cache and re-indexing...")
                 chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
                 if chroma_dir.exists():
@@ -448,8 +448,8 @@ def ocr_ask():
     if not question:
         return jsonify({"error": "Question is required."}), 400
 
-    # ── معالجة تلقائية ومسح الكاش إذا كان هناك خطأ '_type' سابق ───────────
-    if _ocr_error and ("_type" in str(_ocr_error) or "chroma" in str(_ocr_error).lower()):
+    # ── معالجة تلقائية ومسح الكاش إذا كان هناك خطأ '_type' أو 'tenant' سابق ───────────
+    if _ocr_error and ("_type" in str(_ocr_error) or "chroma" in str(_ocr_error).lower() or "tenant" in str(_ocr_error).lower()):
         print(f"[OCR] Recovering from stored error: {_ocr_error}. Clearing cache and re-indexing...")
         try:
             chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
@@ -483,8 +483,8 @@ def ocr_ask():
     try:
         results = query_pipeline(question)
     except Exception as exc:
-        if "_type" in str(exc) or "chroma" in str(exc).lower():
-            print(f"[OCR] Detected incompatible format during query ({exc}). Re-indexing...")
+        if "_type" in str(exc) or "chroma" in str(exc).lower() or "tenant" in str(exc).lower():
+            print(f"[OCR] Detected incompatible format or tenant lock during query ({exc}). Re-indexing...")
             try:
                 chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
                 if chroma_dir.exists():
