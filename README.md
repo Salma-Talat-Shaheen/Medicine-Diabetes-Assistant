@@ -155,14 +155,6 @@ pytest tests/
 
 ---
 
-##  Roadmap
-
-- [ ] Expand reference dataset beyond diabetes to additional chronic conditions
-- [ ] Add source citations directly in the UI for each recommendation
-- [ ] Multi-language support
-- [ ] User feedback loop to improve retrieval quality over time
-
----
 
 
 ##  Team
