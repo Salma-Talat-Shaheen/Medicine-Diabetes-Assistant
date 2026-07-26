@@ -20,7 +20,7 @@
 
 ---
 
-## 🌐 Live Demo
+## **Live Demo**
 
 🔗 **[https://medicine-assistant.onrender.com/](https://medicine-assistant.onrender.com/)**
 
@@ -30,7 +30,7 @@
 
 ---
 
-## 📖 Overview
+## **Overview**
 
 **Medicine Assistant** is an intelligent agent that supports clinicians in selecting appropriate **medicines and dosages**, with a focus on **diabetes care**. It combines a **LangGraph-based reasoning agent** with a **Retrieval-Augmented Generation (RAG)** pipeline, using **ChromaDB** as a vector store, **PostgreSQL** for structured data persistence, and **OpenRouter** LLMs for reasoning — so recommendations are grounded in retrieved medical reference data rather than model guesswork alone.
 
@@ -40,22 +40,22 @@ Instead of relying purely on an LLM's internal knowledge (which can be outdated 
 
 ---
 
-## ✨ Key Features
+##  Key Features
 
 | | |
 |---|---|
-| 🧠 **LangGraph Agent** | Structured, stateful, multi-step reasoning pipeline instead of a single black-box prompt |
-| 🔍 **RAG-Powered Retrieval** | Grounded, citation-friendly answers using ChromaDB vector search over medical references |
-| 🗄️ **PostgreSQL Integration** | Structured data storage for query history, session management, and audit logging |
-| 🔄 **Flexible LLM Access** | Swap between models via OpenRouter without changing application code |
-| 🌐 **Web Interface** | Lightweight, accessible web app for interactive querying |
-| 🐳 **Containerized** | Fully Dockerized for consistent, reproducible deployment anywhere |
-| ⚙️ **Configurable Pipeline** | Centralized settings for model choice, chunk size, and retrieval depth (top-k) |
-| 🧪 **Test Coverage** | Dedicated test suite to validate agent and retrieval behavior |
+|  **LangGraph Agent** | Structured, stateful, multi-step reasoning pipeline instead of a single black-box prompt |
+|  **RAG-Powered Retrieval** | Grounded, citation-friendly answers using ChromaDB vector search over medical references |
+|  **PostgreSQL Integration** | Structured data storage for query history, session management, and audit logging |
+|  **Flexible LLM Access** | Swap between models via OpenRouter without changing application code |
+|  **Web Interface** | Lightweight, accessible web app for interactive querying |
+|  **Containerized** | Fully Dockerized for consistent, reproducible deployment anywhere |
+|  **Configurable Pipeline** | Centralized settings for model choice, chunk size, and retrieval depth (top-k) |
+|  **Test Coverage** | Dedicated test suite to validate agent and retrieval behavior |
 
 ---
 
-## ⚙️ How It Works
+##  How It Works ?
 
 ```mermaid
 flowchart LR
@@ -79,7 +79,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -94,29 +94,28 @@ flowchart LR
 
 ---
 
-## 📚 Knowledge Base
+## Knowledge Base
 
 The assistant's knowledge is grounded in authoritative clinical references on diabetes management. Each source was processed through a rigorous pipeline: documents were converted to tamper-proof images, then **OCR** was applied to extract text and structured table data before indexing into ChromaDB.
 
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <img src="src/web/static/images/MANAGING DIABETES.png" alt="Managing Diabetes" height="320"/>
-    </td>
-    <td width="50%" align="center">
-      <img src="src/web/static/images/Diabetes2025.png" alt="Standards of Care in Diabetes 2025" height="320"/>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="src/web/static/images/MANAGING DIABETES.png" alt="Managing Diabetes" height="300"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="src/web/static/images/Diabetes2025.png" alt="Standards of Care in Diabetes 2025" height="300"/>
+</p>
 
-**📘 Managing Diabetes — Clinical Reference Guide**
+<p align="center">
+
+**Managing Diabetes — Clinical Reference Guide**<br/>
 A WHO/Bhutan clinical guide for health workers covering diabetes pharmacology, dosage protocols, and monitoring parameters. Converted to images and processed with OCR to extract tabular drug data.
 
-**📗 [Standards of Care in Diabetes — 2025](https://www.binasss.sa.cr/standards-of-care-2025.pdf)**
+**[Standards of Care in Diabetes — 2025](https://www.binasss.sa.cr/standards-of-care-2025.pdf)**<br/>
 The ADA's 2025 clinical practice guidelines covering glycemic targets, medication algorithms, and special populations. OCR was used to capture structured protocol tables and graded recommendations.
 
-**📙 [WHO Diabetes Management Guidelines](https://extranet.who.int/ncdccs/Data/BTN_D1_Diabetes%20Management%20guidelines.pdf)**
+**[WHO Diabetes Management Guidelines](https://extranet.who.int/ncdccs/Data/BTN_D1_Diabetes%20Management%20guidelines.pdf)**<br/>
 The World Health Organization's evidence-based guidelines for diabetes management in primary care settings. Provides WHO-recommended first- and second-line treatment pathways and monitoring protocols.
+
+</p>
 
 ---
 
@@ -157,14 +156,14 @@ Then open `.env` and set your `OPENROUTER_API_KEY` and `DATABASE_URL` (PostgreSQ
 python src/web/app.py
 ```
 
-### 🐳 Or run with Docker
+###  Or run with Docker
 ```bash
 docker-compose up --build
 ```
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 Medicine-Diabetes-Assistant/
@@ -189,7 +188,7 @@ Medicine-Diabetes-Assistant/
 
 ---
 
-## 🧪 Testing
+##  Testing
 
 ```bash
 pytest tests/
@@ -197,7 +196,7 @@ pytest tests/
 
 ---
 
-## 🤝 Contributing
+##  Contributing
  
 Contributions, issues, and feature requests are welcome!
  
@@ -209,19 +208,19 @@ Contributions, issues, and feature requests are welcome!
    
 ---
 
-## 👥 Team
+##  Team
 
 This project was built with dedication by:
 
 | Contributor | Role |
 |---|---|
-| **Salma Shaheen** | Development |
-| **Hebatallah AbuHarb** | Development |
-| **Zahraa Alderawi** | Development |
+| **Salma Shaheen** | Development | 220210654 |
+| **Hebatallah AbuHarb** | Development | 220210448 |
+| **Zahraa Alderawi** | Development | 220221428 |
 
 ---
 
-## 📄 License
+##  License
 
 This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
 
