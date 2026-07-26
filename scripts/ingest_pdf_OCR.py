@@ -44,7 +44,7 @@ Environment variables (same .env as the rest of the project)
     LLM_MODEL            — default: mistralai/mixtral-8x7b-instruct
     EMBEDDING_MODEL      — default: sentence-transformers/all-MiniLM-L6-v2
     TOP_K                — chunks to retrieve (default: 4)
-    CHUNK_SIZE           — default: 1 500
+    CHUNK_SIZE           — default: 1500
     CHUNK_OVERLAP        — default: 200
     MIN_CONFIDENCE       — EasyOCR word-level confidence floor (default: 0.4)
 """
@@ -308,7 +308,7 @@ def build_or_load_vector_store(
 def get_llm() -> ChatOpenAI:
     return ChatOpenAI(
         model=LLM_MODEL,
-        api_key=lambda: OPENROUTER_API_KEY,  # type: ignore[arg-type]
+        api_key=OPENROUTER_API_KEY,  # type: ignore[arg-type]
         base_url=OPENROUTER_BASE_URL,
         temperature=0.1,
     )
@@ -356,7 +356,7 @@ def compute_similarity_scores(
             "preview": str,          # first 120 chars of the chunk
         }
     """
-    query_vec  = np.array(embeddings.embed_query(query))
+    query_vec   = np.array(embeddings.embed_query(query))
     chunk_vecs = np.array(embeddings.embed_documents(
         [doc.page_content for doc in retrieved_docs]
     ))
@@ -392,17 +392,17 @@ def query_pipeline(
     Returns
     -------
     {
-        "question":          str,
-        "rag_answer":        str,
+        "question":         str,
+        "rag_answer":       str,
         "no_rag_answer":     str,
-        "retrieved_chunks":  list[dict],   # with similarity scores
-        "avg_similarity":    float,
+        "retrieved_chunks": list[dict],   # with similarity scores
+        "avg_similarity":   float,
     }
     """
     llm = get_llm()
 
     # ── Retrieve top-K chunks ─────────────────────────────────────────────────
-    retriever     = vector_store.as_retriever(search_kwargs={"k": TOP_K})
+    retriever      = vector_store.as_retriever(search_kwargs={"k": TOP_K})
     retrieved_docs = retriever.invoke(question)
 
     # ── RAG answer ────────────────────────────────────────────────────────────
@@ -496,8 +496,8 @@ def ingest_path(
         pdf_paths = sorted(path.glob("**/*.pdf"))
         if not pdf_paths:
             raise FileNotFoundError(f"No PDF files found in: {path}")
-    else:
-        raise FileNotFoundError(f"Path does not exist: {path}")
+        else:
+            raise FileNotFoundError(f"Path does not exist: {path}")
 
     print(f"\nFound {len(pdf_paths)} PDF file(s) to ingest.\n")
 
@@ -527,6 +527,8 @@ def ingest_path(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
+    global TOP_K  # Declared at the very top of the function to avoid SyntaxError
+
     parser = argparse.ArgumentParser(
         description=(
             "OCR pipeline for scanned PDFs with RAG / No-RAG comparison "
@@ -565,7 +567,6 @@ def main() -> None:
     args = parser.parse_args()
 
     # Override globals from CLI flags
-    global TOP_K
     TOP_K = args.top_k
 
     try:
