@@ -45,7 +45,7 @@
             type="text"
             id="ocrQuestion"
             class="flex-1 bg-gray-900 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors"
-            placeholder="e.g., What is the recommended HbA1c target?">
+            placeholder="e.g., What is in your mind?">
           <button
             type="button"
             id="ocrAskBtn"
@@ -80,28 +80,28 @@
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
             <!-- RAG answer -->
-            <div class="bg-gray-900/80 rounded-lg p-5 border-l-4 border-primary border-y border-r border-gray-700">
-              <h4 class="text-xs font-bold text-primary uppercase tracking-wider mb-2">
-                📚 RAG Answer
-                <span class="ml-1 text-gray-500 normal-case font-normal">(grounded in guideline)</span>
+            <div class="rounded-lg p-5 border-l-4 border-y border-r" style="background:#FDFAF5; border-color:#B8860B;">
+              <h4 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:#2C1C0E;">
+                RAG ANSWER
+                <span class="ml-1 normal-case font-normal" style="color:#7A5C3C;">(grounded in guideline)</span>
               </h4>
-              <div id="ocrRagAnswer" class="text-gray-200 text-sm leading-relaxed"></div>
+              <div id="ocrRagAnswer" class="text-sm leading-relaxed" style="color:#1A0E06;"></div>
             </div>
 
             <!-- No-RAG answer -->
-            <div class="bg-gray-900/80 rounded-lg p-5 border-l-4 border-gray-500 border-y border-r border-gray-700">
-              <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
-                LLM-only Answer
-                <span class="ml-1 text-gray-500 normal-case font-normal">(no context)</span>
+            <div class="rounded-lg p-5 border-l-4 border-y border-r" style="background:#FDFAF5; border-color:#BE9474;">
+              <h4 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:#2C1C0E;">
+                LLM-ONLY ANSWER
+                <span class="ml-1 normal-case font-normal" style="color:#7A5C3C;">(no context)</span>
               </h4>
-              <div id="ocrNoRagAnswer" class="text-gray-300 text-sm leading-relaxed"></div>
+              <div id="ocrNoRagAnswer" class="text-sm leading-relaxed" style="color:#1A0E06;"></div>
             </div>
           </div>
 
           <!-- Retrieved chunks table -->
           <div>
-            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
-              Retrieved Chunks — Similarity Scores
+            <h4 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:#2C1C0E;">
+              RETRIEVED CHUNKS — SIMILARITY SCORES
             </h4>
             <div id="ocrChunks" class="space-y-2"></div>
           </div>
@@ -362,15 +362,21 @@
             (labelClass[bestLabel] || 'text-gray-300');
 
           // ── Chunks table ───────────────────────────────────────────────────
+          const scoreColor = {
+            '🟢 Excellent': '#1A6B35',
+            '🟡 Good':      '#96690A',
+            '🟠 Moderate':  '#B85A00',
+            '🔴 Weak':      '#9B2226',
+          };
           chunksBox.innerHTML = (data.chunks || []).map(c => `
-            <div class="bg-gray-900 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-2 border border-gray-700">
+            <div class="rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-2 border" style="background:#FDFAF5; border-color:#CEC5B8;">
               <div class="flex items-center gap-2 min-w-[160px]">
-                <span class="text-xs font-bold text-gray-500">#${c.rank}</span>
-                <span class="text-sm font-semibold ${labelClass[c.label] || 'text-gray-300'}">${c.score.toFixed(4)}</span>
-                <span class="text-xs text-gray-400">${c.label}</span>
+                <span class="text-xs font-bold" style="color:#7A5C3C;">#${c.rank}</span>
+                <span class="text-sm font-semibold" style="color:${scoreColor[c.label] || '#2C1C0E'};">${c.score.toFixed(4)}</span>
+                <span class="text-xs" style="color:#5C3A1E;">${c.label}</span>
               </div>
-              <div class="flex-1 text-xs text-gray-400 leading-relaxed">
-                <span class="text-gray-500 mr-1">page ${c.page}</span>
+              <div class="flex-1 text-xs leading-relaxed" style="color:#2C1C0E;">
+                <span class="mr-1" style="color:#7A5C3C;">page ${c.page}</span>
                 "${c.preview}…"
               </div>
             </div>
