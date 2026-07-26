@@ -106,52 +106,40 @@ DO NOT say things like Of course. Here is a patient-friendly report... etc
 """
 
 
-
 class AgentState(TypedDict):
     """Enhanced state schema for the medicine assistant agent."""
     messages: list[BaseMessage]
     context: str
-    patient_info: dict  # Changed from str to dict for structured data
+    patient_info: dict
     recommendations: str
-    physician_report: str  # Separate storage for physician report
-    patient_report: str    # Separate storage for patient report
-    error_message: str  # Error handling
+    physician_report: str
+    patient_report: str
+    safety_alerts: list[str]
+    needs_clarification: bool
+    error_message: str
 
 
 class MedicineAssistantAgent:
-    """Enhanced LangGraph-based agent for medicine assistance with improved workflow."""
+    """Enhanced agent for medicine assistance with simplified execution flow."""
 
     def __init__(self, rag_component: RAGComponent | None = None):
-        """
-        Initialize the Medicine Assistant Agent.
-
-        Args:
-            rag_component: RAGComponent for document retrieval.
-                         If None, a new instance will be created.
-        """
+        """Initialize the Medicine Assistant Agent."""
         self.rag = rag_component or RAGComponent()
         self.llm = get_llm()
-        # Simplified flow: no StateGraph. We'll call methods sequentially in invoke/ainvoke.
-
-    # Note: The prior implementation used a StateGraph to orchestrate steps. To
-    # simplify maintenance and readability we've removed the graph and call
-    # components sequentially in `invoke` / `ainvoke`.
 
     def _extract_patient_data(self, state: dict) -> dict:
         """Extract and structure patient data from the query."""
         messages = state.get("messages", [])
         patient_info = state.get("patient_info", {})
-        # If patient_info already provided (from Flask route), use it
+        
         if patient_info and isinstance(patient_info, dict) and len(patient_info) > 0:
             return {"patient_info": patient_info}
 
-        # If there's a human message, store the raw message text directly
         if messages:
             last_message = messages[-1]
             if isinstance(last_message, HumanMessage):
                 return {"patient_info": {"raw": last_message.content}}
 
-        # Fallback: empty patient_info
         return {"patient_info": {}}
 
     def _retrieve_context(self, state: dict) -> dict:
@@ -159,23 +147,18 @@ class MedicineAssistantAgent:
         messages = state.get("messages", [])
         patient_info = state.get("patient_info", {})
         
-        # Build enhanced query for retrieval
         query_parts = []
-        
-        # Add original query
         for msg in reversed(messages):
             if isinstance(msg, HumanMessage):
                 query_parts.append(msg.content)
                 break
         
-        # Add patient-specific context for better retrieval
         if patient_info.get("diabetes_type"):
             query_parts.append(f"diabetes type: {patient_info['diabetes_type']}")
         
         if patient_info.get("egfr"):
-            egfr_val = patient_info["egfr"]
             try:
-                egfr = float(egfr_val)
+                egfr = float(patient_info["egfr"])
                 if egfr < 30:
                     query_parts.append("severe renal impairment medication adjustments")
                 elif egfr < 60:
@@ -200,32 +183,23 @@ class MedicineAssistantAgent:
                 pass
         
         enhanced_query = " ".join(query_parts)
-        
-        # Retrieve with multiple passes for comprehensive coverage
         all_docs = []
         
-        # Main retrieval
         docs = self.rag.retrieve(enhanced_query, k=5)
         all_docs.extend(docs)
         
-        # Retrieve medication-specific guidance if current meds are known
         current_meds = patient_info.get("current_medications") or patient_info.get("current_meds")
         if current_meds:
-            # Handle both string and list formats
             if isinstance(current_meds, str):
-                # Simple extraction of medication names
-                med_names = [word for word in current_meds.split() 
-                           if len(word) > 3 and word[0].isupper()]
+                med_names = [word for word in current_meds.split() if len(word) > 3 and word[0].isupper()]
             else:
-                med_names = [med.get("name") if isinstance(med, dict) else str(med) 
-                           for med in current_meds]
+                med_names = [med.get("name") if isinstance(med, dict) else str(med) for med in current_meds]
             
-            for med_name in med_names[:3]:  # Limit to 3 to avoid too many queries
+            for med_name in med_names[:3]:
                 if med_name:
                     med_docs = self.rag.retrieve(f"{med_name} dosing monitoring", k=2)
                     all_docs.extend(med_docs)
         
-        # Deduplicate and format context
         seen_content = set()
         unique_docs = []
         for doc in all_docs:
@@ -233,15 +207,13 @@ class MedicineAssistantAgent:
                 seen_content.add(doc.page_content)
                 unique_docs.append(doc)
         
-        # Format context with source attribution
         context_parts = []
-        for i, doc in enumerate(unique_docs[:10]):  # Limit to top 10
+        for i, doc in enumerate(unique_docs[:10]):
             source = doc.metadata.get("source", "Unknown")
             page = doc.metadata.get("page", "N/A")
             context_parts.append(f"[Source {i+1}: {source}, Page {page}]\n{doc.page_content}")
         
         context = "\n\n---\n\n".join(context_parts)
-        
         return {"context": context}
 
     def _generate_physician_report(self, state: dict) -> dict:
@@ -265,9 +237,7 @@ Provide a comprehensive physician report with:
 
 Use clear headings and be concise, don't make it too long. This is for the treating physician who understands this topic don't be too extensive.
 """
-        
         response = self.llm.invoke([HumanMessage(content=physician_prompt)])
-        
         return {"physician_report": response.content}
 
     def _generate_patient_report(self, state: dict) -> dict:
@@ -295,20 +265,15 @@ Generate a clear, compassionate patient report with:
 
 Use simple language. Be encouraging and supportive. Avoid medical terminology or explain it clearly.
 """
-        
         response = self.llm.invoke([HumanMessage(content=patient_prompt)])
-        
         return {"patient_report": response.content}
 
-    # Clarification handling removed — callers should supply sufficient data.
-
     def _format_patient_data(self, patient_info: dict) -> str:
-        """Format patient data for LLM prompts."""
+        """Format patient data for LLM prompts safely."""
         if not patient_info:
             return "No patient data available."
         
         formatted = "**PATIENT DATA:**\n\n"
-        
         sections = {
             "Demographics": ["name", "patient_id", "age", "gender", "weight", "height", "bmi"],
             "Diabetes Profile": ["diabetes_type", "duration_years"],
@@ -320,7 +285,8 @@ Use simple language. Be encouraging and supportive. Avoid medical terminology or
         }
         
         for section, fields in sections.items():
-            section_data = {k: v for k, v in patient_info.items() if k in fields and v}
+            # إهمال السلاسل الفارغة أو القيمة None
+            section_data = {k: v for k, v in patient_info.items() if k in fields and v not in [None, "", [], {}]}
             if section_data:
                 formatted += f"\n**{section}:**\n"
                 for key, value in section_data.items():
@@ -329,25 +295,13 @@ Use simple language. Be encouraging and supportive. Avoid medical terminology or
         return formatted
 
     def invoke(self, message: str, patient_info: dict | str | None = None) -> dict:
-        """
-        Process a user message and return both reports.
-
-        Args:
-            message: The user's input message (can include structured patient data).
-            patient_info: Optional patient information (dict preferred, str accepted for backwards compatibility).
-
-        Returns:
-            Dictionary with `physician_report`, `patient_report`, and `patient_info`.
-        """
-        # Handle backwards compatibility - convert string to dict if needed
+        """Process a user message and return both reports."""
         if isinstance(patient_info, str):
             try:
                 patient_info = json.loads(patient_info)
             except (json.JSONDecodeError, TypeError):
-                # If it's not valid JSON, let extraction handle it
                 patient_info = {}
-        
-        # Prepare initial state
+
         messages: list[BaseMessage] = [HumanMessage(content=message)]
         state: dict = {
             "messages": messages,
@@ -356,22 +310,17 @@ Use simple language. Be encouraging and supportive. Avoid medical terminology or
             "recommendations": "",
             "physician_report": "",
             "patient_report": "",
+            "safety_alerts": [],
+            "needs_clarification": False,
             "error_message": "",
         }
 
-        # 1) Extract patient data if not already provided
         extract_out = self._extract_patient_data(state)
         state["patient_info"] = extract_out.get("patient_info", state["patient_info"])
 
-        # 2) (Validation step removed) Proceeding directly after extraction.
-
-        # 3) Retrieve context and identify safety concerns
         ctx = self._retrieve_context(state)
         state["context"] = ctx.get("context", "")
 
-        # Safety-alert identification removed; nothing to set here.
-
-        # 4) Generate reports sequentially
         phys = self._generate_physician_report(state)
         state["physician_report"] = phys.get("physician_report", "")
 
@@ -382,50 +331,10 @@ Use simple language. Be encouraging and supportive. Avoid medical terminology or
             "physician_report": state["physician_report"],
             "patient_report": state["patient_report"],
             "patient_info": state.get("patient_info", {}),
+            "safety_alerts": state.get("safety_alerts", []),
+            "needs_clarification": state.get("needs_clarification", False),
         }
 
     async def ainvoke(self, message: str, patient_info: dict | str | None = None) -> dict:
         """Async version of invoke."""
-        # Handle backwards compatibility
-        if isinstance(patient_info, str):
-            try:
-                patient_info = json.loads(patient_info)
-            except (json.JSONDecodeError, TypeError):
-                patient_info = {}
-        # For simplicity, call the synchronous flow in an executor-like manner.
-        # If a fully async LLM/RAG is used, this method should be adapted.
         return self.invoke(message, patient_info)
-
-
-# Example usage
-if __name__ == "__main__":
-    agent = MedicineAssistantAgent()
-    
-    # Example with structured query
-    query = """
-    Patient: John Doe (ID: P12345)
-    Age: 58, Male, Weight: 92kg
-    Type 2 Diabetes, 8 years duration
-    
-    Latest Labs:
-    - HbA1c: 8.2%
-    - Blood Glucose: 165 mg/dL
-    - BP: 145/88 mmHg
-    - eGFR: 58 mL/min
-    - LDL: 145, HDL: 38, TG: 210
-    
-    Current Meds: Metformin 1000mg BID, Glimepiride 4mg daily
-    Recent Changes: Glimepiride increased from 2mg to 4mg 3 months ago
-    Notes: Occasional morning hyperglycemia, mild peripheral neuropathy
-    """
-    
-    result = agent.invoke(query)
-    
-    print("\n=== PATIENT INFO (raw) ===")
-    print(result.get("patient_info", {}))
-
-    print("\n=== PHYSICIAN REPORT ===")
-    print(result["physician_report"])
-    
-    print("\n=== PATIENT REPORT ===")
-    print(result["patient_report"])
