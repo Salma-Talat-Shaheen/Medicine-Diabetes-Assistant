@@ -109,17 +109,17 @@ The assistant's knowledge is grounded in authoritative clinical references on di
 **Managing Diabetes — Clinical Reference Guide**<br/>
 A WHO/Bhutan clinical guide for health workers covering diabetes pharmacology, dosage protocols, and monitoring parameters. Converted to images and processed with OCR to extract tabular drug data.
 
-**[Standards of Care in Diabetes — 2025](https://www.binasss.sa.cr/standards-of-care-2025.pdf)**<br/>
+1. **[Standards of Care in Diabetes — 2025](https://www.binasss.sa.cr/standards-of-care-2025.pdf)**<br/>
 The ADA's 2025 clinical practice guidelines covering glycemic targets, medication algorithms, and special populations. OCR was used to capture structured protocol tables and graded recommendations.
 
-**[WHO Diabetes Management Guidelines](https://extranet.who.int/ncdccs/Data/BTN_D1_Diabetes%20Management%20guidelines.pdf)**<br/>
+2. **[WHO Diabetes Management Guidelines](https://extranet.who.int/ncdccs/Data/BTN_D1_Diabetes%20Management%20guidelines.pdf)**<br/>
 The World Health Organization's evidence-based guidelines for diabetes management in primary care settings. Provides WHO-recommended first- and second-line treatment pathways and monitoring protocols.
 
 </p>
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - [Conda](https://docs.conda.io/) (recommended) or a Python 3.10 virtual environment
@@ -212,8 +212,8 @@ Contributions, issues, and feature requests are welcome!
 
 This project was built with dedication by:
 
-| Contributor | Role |
-|---|---|
+| Contributor | Role | IDs |
+|---|---|---|
 | **Salma Shaheen** | Development | 220210654 |
 | **Hebatallah AbuHarb** | Development | 220210448 |
 | **Zahraa Alderawi** | Development | 220221428 |
