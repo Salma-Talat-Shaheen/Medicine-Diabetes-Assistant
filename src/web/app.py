@@ -75,8 +75,7 @@ def _load_ocr_index() -> None:
         try:
             ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
         except Exception as inner_exc:
-            # إذا ظهر خطأ '_type' أو خطأ متصل بقاعدة البيانات القديمة، يتم حذف مجلد chroma_db وإعادة الفهرسة فوراً
-            if "_type" in str(inner_exc) or "chroma" in str(inner_exc).lower() or "tenant" in str(inner_exc).lower():
+            if "_type" in str(inner_exc) or "chroma" in str(inner_exc).lower():
                 print(f"[OCR] Detected incompatible vector store format ({inner_exc}). Clearing chroma_db cache and re-indexing...")
                 chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
                 if chroma_dir.exists():
@@ -443,13 +442,13 @@ def ocr_ask():
     global _ocr_ready, _ocr_error
 
     # ── التحقق من الـ input أولاً ───────────────────────────────────────────
-    body     = request.get_json(silent=True) or {}
+    body   = request.get_json(silent=True) or {}
     question = (body.get("question") or body.get("query") or "").strip()
     if not question:
         return jsonify({"error": "Question is required."}), 400
 
-    # ── معالجة تلقائية ومسح الكاش إذا كان هناك خطأ '_type' أو 'tenant' سابق ───────────
-    if _ocr_error and ("_type" in str(_ocr_error) or "chroma" in str(_ocr_error).lower() or "tenant" in str(_ocr_error).lower()):
+    # ── معالجة تلقائية ومسح الكاش إذا كان هناك خطأ '_type' سابق ───────────
+    if _ocr_error and ("_type" in str(_ocr_error) or "chroma" in str(_ocr_error).lower()):
         print(f"[OCR] Recovering from stored error: {_ocr_error}. Clearing cache and re-indexing...")
         try:
             chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
@@ -467,8 +466,10 @@ def ocr_ask():
             _ocr_error = None
             print("[OCR] ✓ Recovery successful — index rebuilt.")
         except Exception as recovery_exc:
-            print(f"[OCR Recovery Error]: {recovery_exc}")
-            return jsonify({"error": f"Recovery failed: {str(recovery_exc)}"}), 500
+            import traceback
+            tb_str = traceback.format_exc()
+            print(f"[OCR Recovery Error]: {tb_str}")
+            return jsonify({"error": f"Recovery failed: {str(recovery_exc)}", "traceback": tb_str}), 500
 
     # إذا كان لا يزال هناك خطأ آخر غير متعلق بـ chroma/_type
     if _ocr_error:
@@ -479,12 +480,16 @@ def ocr_ask():
             "error": "OCR index is still loading — please wait 30–60 s and retry."
         }), 503
 
-    # ── تشغيل RAG مع حماية إضافية أثناء الاستعلام ───────────────────────────
+    # ── تشغيل RAG مع حماية إضافية أثناء الاستعلام وطباعة الخطأ بالتفصيل ───────────
     try:
         results = query_pipeline(question)
     except Exception as exc:
-        if "_type" in str(exc) or "chroma" in str(exc).lower() or "tenant" in str(exc).lower():
-            print(f"[OCR] Detected incompatible format or tenant lock during query ({exc}). Re-indexing...")
+        import traceback
+        tb_str = traceback.format_exc()
+        print(f"[OCR Error Traceback]:\n{tb_str}")
+        
+        if "_type" in str(exc) or "chroma" in str(exc).lower():
+            print(f"[OCR] Detected incompatible format during query ({exc}). Re-indexing...")
             try:
                 chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
                 if chroma_dir.exists():
@@ -499,21 +504,21 @@ def ocr_ask():
                 ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
                 results = query_pipeline(question)
             except Exception as inner_exc:
-                print(f"[OCR Error during query recovery]: {inner_exc}")
-                return jsonify({"error": str(inner_exc)}), 500
+                inner_tb = traceback.format_exc()
+                print(f"[OCR Error during query recovery]: {inner_tb}")
+                return jsonify({"error": str(inner_exc), "traceback": inner_tb}), 500
         else:
-            print(f"[OCR Error]: {exc}")
-            return jsonify({"error": str(exc)}), 500
+            return jsonify({"error": str(exc), "traceback": tb_str}), 500
         
-    rag_ans = results.get("rag_answer", "")
-    no_rag_ans = results.get("no_rag_answer", "")
+    rag_ans = results.get("rag_answer", "") if isinstance(results, dict) else str(results)
+    no_rag_ans = results.get("no_rag_answer", "") if isinstance(results, dict) else ""
     
     return jsonify({
         "answer": rag_ans,
         "rag_answer": rag_ans,
         "no_rag_answer": no_rag_ans,
-        "chunks": results.get("retrieved_chunks", []),
-        "overall_similarity": results.get("overall_similarity_score", 0)
+        "chunks": results.get("retrieved_chunks", []) if isinstance(results, dict) else [],
+        "overall_similarity": results.get("overall_similarity_score", 0) if isinstance(results, dict) else 0
     })
 
 
