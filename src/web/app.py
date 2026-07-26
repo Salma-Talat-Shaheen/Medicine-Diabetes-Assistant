@@ -518,7 +518,7 @@ def ocr_ask():
         "rag_answer": rag_ans,
         "no_rag_answer": no_rag_ans,
         "chunks": results.get("retrieved_chunks", []) if isinstance(results, dict) else [],
-        "overall_similarity": results.get("overall_similarity_score", 0) if isinstance(results, dict) else 0
+        "avg_similarity": results.get("overall_similarity_score", 0) if isinstance(results, dict) else 0
     })
 
 
