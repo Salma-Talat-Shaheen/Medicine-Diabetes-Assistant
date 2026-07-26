@@ -426,16 +426,10 @@ def consult_stt():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Route: POST /api/ocr-ask  — OCR-RAG endpoint
-# ─ Receives JSON: { "question": "What is the HbA1c target?" }
-# ─ Returns  JSON: {
-#     "rag_answer":     "...",           ← مبني على الـ guideline
-#     "no_rag_answer":  "...",           ← LLM بدون context
-#     "chunks":         [...],           ← أفضل المقاطع مع similarity scores
-#     "avg_similarity": 0.82             ← متوسط التشابه
-#   }
+# Route: POST /api/ocr-ask  or  POST /api/ask-qna  — OCR-RAG endpoint
 # ═══════════════════════════════════════════════════════════════════════════════
 @app.route('/api/ocr-ask', methods=['POST'])
+@app.route('/api/ask-qna', methods=['POST'])
 def ocr_ask():
     # ── الـ index لم ينتهِ بعد ──────────────────────────────────────────────
     if _ocr_error:
@@ -448,22 +442,27 @@ def ocr_ask():
 
     # ── التحقق من الـ input ─────────────────────────────────────────────────
     body     = request.get_json(silent=True) or {}
-    question = (body.get("question") or "").strip()
+    question = (body.get("question") or body.get("query") or "").strip()
     if not question:
         return jsonify({"error": "Question is required."}), 400
 
     # ── تشغيل RAG + No-RAG ─────────────────────────────────────────────────
     try:
         results = query_pipeline(question, _ocr_vector_store, _ocr_embeddings)
+        
+        rag_ans = results.get("rag_answer", "")
+        no_rag_ans = results.get("no_rag_answer", "")
+        
+        return jsonify({
+            "answer": rag_ans,
+            "rag_answer": rag_ans,
+            "no_rag_answer": no_rag_ans,
+            "chunks": results.get("retrieved_chunks", []),
+            "avg_similarity": results.get("avg_similarity", 0)
+        })
     except Exception as exc:
+        print(f"[OCR Error]: {exc}")
         return jsonify({"error": str(exc)}), 500
-
-    return jsonify({
-        "rag_answer":     results["rag_answer"],
-        "no_rag_answer":  results["no_rag_answer"],
-        "chunks":         results["retrieved_chunks"],
-        "avg_similarity": results["avg_similarity"],
-    })
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
