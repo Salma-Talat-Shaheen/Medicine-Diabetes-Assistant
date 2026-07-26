@@ -25,7 +25,6 @@ class RAGComponent:
         self.persist_directory = persist_directory or settings.CHROMA_PERSIST_DIRECTORY
         settings.validate()
         
-        # تمرير المفتاح كـ string مباشر بدلاً من lambda
         self.embeddings = OpenAIEmbeddings(
             model="openai/text-embedding-3-small",
             api_key=settings.OPENROUTER_API_KEY,
