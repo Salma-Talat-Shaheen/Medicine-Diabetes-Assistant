@@ -4,6 +4,7 @@ import re
 import sys
 import tempfile
 import threading
+import shutil
 from pathlib import Path
 
 from flask import Flask, flash, redirect, render_template, request, url_for, send_file, jsonify
@@ -44,7 +45,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-key-medicine-assistant")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# OCR-RAG — تحميل الـ index في الخلفية عند بدء السيرفر
+# OCR-RAG — تحميل الـ index في الخلفية عند بدء السيرفر مع معالجة خطأ التوافق (_type)
 # ═══════════════════════════════════════════════════════════════════════════════
 _ocr_ready = False
 _ocr_error = None
@@ -53,7 +54,7 @@ _ocr_error = None
 def _load_ocr_index() -> None:
     """
     تُشغَّل مرة واحدة في background thread عند بدء التشغيل.
-    - يقوم بفحص الملف وفهرسته تلقائياً إذا لم يكن مفهرساً من قبل.
+    - يقوم بفحص الملف وفهرسته، وإذا حدث خطأ بسبب صيغة قديمة (_type)، يتم مسح الكاش وإعادة البناء تلقائياً.
     """
     global _ocr_ready, _ocr_error
 
@@ -70,8 +71,20 @@ def _load_ocr_index() -> None:
             )
         )
         print(f"[OCR] Starting ingestion/check: {pdf_path.name}")
-        # ingest_path تتكفل بالتحقق وتتخطى إعادة الفهرسة تلقائياً إذا كان الملف مفهرساً مسبقاً
-        ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
+        
+        try:
+            ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
+        except Exception as inner_exc:
+            # إذا ظهر خطأ '_type' أو خطأ متصل بقاعدة البيانات القديمة، يتم حذف مجلد chroma_db وإعادة الفهرسة فوراً
+            if "_type" in str(inner_exc) or "chroma" in str(inner_exc).lower():
+                print(f"[OCR] Detected incompatible vector store format ({inner_exc}). Clearing chroma_db cache and re-indexing...")
+                chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
+                if chroma_dir.exists():
+                    shutil.rmtree(chroma_dir)
+                ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
+            else:
+                raise inner_exc
+
         _ocr_ready = True
         print("[OCR] ✓ Ready — vector store loaded.")
     except Exception as exc:
