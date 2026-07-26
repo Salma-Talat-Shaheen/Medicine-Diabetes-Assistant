@@ -29,13 +29,12 @@ load_dotenv()
 # ═══════════════════════════════════════════════════════════════════════════════
 # OCR-RAG — إضافة مسار scripts/ حتى يجد Python ملف ingest_pdf_OCR.py
 # ═══════════════════════════════════════════════════════════════════════════════
-# app.py موجود في src/web/  →  جذر المشروع هو ../../  →  scripts هو ../../../scripts
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 try:
-    from ingest_pdf_OCR import ingest_path, query_pipeline
+    from ingest_pdf_OCR import ingest_path, query_pipeline, validate_config, OCR_LANGUAGES
     _OCR_IMPORT_OK = True
 except ImportError as _e:
     print(f"[OCR] Warning: could not import ingest_pdf_OCR: {_e}")
@@ -47,36 +46,33 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-key-medicine-assistant")
 # ═══════════════════════════════════════════════════════════════════════════════
 # OCR-RAG — تحميل الـ index في الخلفية عند بدء السيرفر
 # ═══════════════════════════════════════════════════════════════════════════════
-_ocr_vector_store = None
-_ocr_embeddings   = None
-_ocr_ready        = False
-_ocr_error        = None
+_ocr_ready = False
+_ocr_error = None
 
 
 def _load_ocr_index() -> None:
     """
     تُشغَّل مرة واحدة في background thread عند بدء التشغيل.
-    - أول مرة: يعمل OCR ويبني FAISS index (30–90 ثانية).
-    - بعدها: يُحمِّل من الـ cache فوراً (ثوانٍ).
+    - يقوم بفحص الملف وفهرسته تلقائياً إذا لم يكن مفهرساً من قبل.
     """
-    global _ocr_vector_store, _ocr_embeddings, _ocr_ready, _ocr_error
+    global _ocr_ready, _ocr_error
 
     if not _OCR_IMPORT_OK:
         _ocr_error = "ingest_pdf_OCR module not found — check scripts/ folder."
         return
 
     try:
+        validate_config()
         pdf_path = Path(
             os.getenv(
                 "OCR_PDF_PATH",
                 "scripts/hcea guidelines_BW 1-25-2021-4-7_page-0001.pdf",
             )
         )
-        print(f"[OCR] Starting ingestion: {pdf_path.name}")
-        store, emb, _ = ingest_path(pdf_path)
-        _ocr_vector_store = store
-        _ocr_embeddings   = emb
-        _ocr_ready        = True
+        print(f"[OCR] Starting ingestion/check: {pdf_path.name}")
+        # ingest_path تتكفل بالتحقق وتتخطى إعادة الفهرسة تلقائياً إذا كان الملف مفهرساً مسبقاً
+        ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
+        _ocr_ready = True
         print("[OCR] ✓ Ready — vector store loaded.")
     except Exception as exc:
         _ocr_error = str(exc)
@@ -270,23 +266,23 @@ def consult():
         else:
             try:
                 consult_data = {
-                    "patient_id":           patient_id,
-                    "name":                 patient.get('name') if patient else request.form.get('name', 'Unknown'),
-                    "age":                  request.form.get('age') or (patient.get('age') if patient else None),
-                    "gender":               request.form.get('gender') or (patient.get('gender') if patient else None),
-                    "weight":               request.form.get('weight') or (patient.get('weight_kg') if patient else None),
-                    "diabetes_type":        request.form.get('diabetes_type') or (patient.get('diabetes_type') if patient else None),
-                    "duration_years":       request.form.get('duration_years') or (patient.get('duration_years') if patient else None),
-                    "latest_hba1c":         request.form.get('latest_hba1c') or (patient.get('latest_hba1c') if patient else None),
-                    "blood_glucose":        request.form.get('blood_glucose'),
-                    "blood_pressure":       request.form.get('blood_pressure'),
-                    "egfr":                 request.form.get('egfr') or (patient.get('egfr_ml_min') if patient else None),
-                    "lipid_panel":          request.form.get('lipid_panel'),
-                    "symptoms_notes":       request.form.get('symptoms_notes') or (patient.get('recent_symptoms') if patient else ''),
+                    "patient_id":            patient_id,
+                    "name":                  patient.get('name') if patient else request.form.get('name', 'Unknown'),
+                    "age":                   request.form.get('age') or (patient.get('age') if patient else None),
+                    "gender":                request.form.get('gender') or (patient.get('gender') if patient else None),
+                    "weight":                request.form.get('weight') or (patient.get('weight_kg') if patient else None),
+                    "diabetes_type":         request.form.get('diabetes_type') or (patient.get('diabetes_type') if patient else None),
+                    "duration_years":        request.form.get('duration_years') or (patient.get('duration_years') if patient else None),
+                    "latest_hba1c":          request.form.get('latest_hba1c') or (patient.get('latest_hba1c') if patient else None),
+                    "blood_glucose":         request.form.get('blood_glucose'),
+                    "blood_pressure":        request.form.get('blood_pressure'),
+                    "egfr":                  request.form.get('egfr') or (patient.get('egfr_ml_min') if patient else None),
+                    "lipid_panel":           request.form.get('lipid_panel'),
+                    "symptoms_notes":        request.form.get('symptoms_notes') or (patient.get('recent_symptoms') if patient else ''),
                     "treatment_adjustments": request.form.get('treatment_adjustments'),
-                    "current_meds":         patient.get('current_meds') if patient else request.form.get('current_meds', ''),
-                    "comorbidities":        request.form.get('comorbidities') or (patient.get('comorbidities') if patient else None),
-                    "allergies":            request.form.get('allergies') or (patient.get('allergies') if patient else None),
+                    "current_meds":          patient.get('current_meds') if patient else request.form.get('current_meds', ''),
+                    "comorbidities":         request.form.get('comorbidities') or (patient.get('comorbidities') if patient else None),
+                    "allergies":             request.form.get('allergies') or (patient.get('allergies') if patient else None),
                 }
 
                 consult_data = {k: (v if v is not None else '') for k, v in consult_data.items()}
@@ -446,9 +442,9 @@ def ocr_ask():
     if not question:
         return jsonify({"error": "Question is required."}), 400
 
-    # ── تشغيل RAG + No-RAG ─────────────────────────────────────────────────
+    # ── تشغيل RAG + No-RAG بالاعتماد على دالة query_pipeline المحدثة ────────
     try:
-        results = query_pipeline(question, _ocr_vector_store, _ocr_embeddings)
+        results = query_pipeline(question)
         
         rag_ans = results.get("rag_answer", "")
         no_rag_ans = results.get("no_rag_answer", "")
@@ -458,7 +454,7 @@ def ocr_ask():
             "rag_answer": rag_ans,
             "no_rag_answer": no_rag_ans,
             "chunks": results.get("retrieved_chunks", []),
-            "avg_similarity": results.get("avg_similarity", 0)
+            "overall_similarity": results.get("overall_similarity_score", 0)
         })
     except Exception as exc:
         print(f"[OCR Error]: {exc}")
