@@ -279,23 +279,23 @@ def consult():
         else:
             try:
                 consult_data = {
-                    "patient_id":            patient_id,
-                    "name":                  patient.get('name') if patient else request.form.get('name', 'Unknown'),
-                    "age":                   request.form.get('age') or (patient.get('age') if patient else None),
-                    "gender":                request.form.get('gender') or (patient.get('gender') if patient else None),
-                    "weight":                request.form.get('weight') or (patient.get('weight_kg') if patient else None),
-                    "diabetes_type":         request.form.get('diabetes_type') or (patient.get('diabetes_type') if patient else None),
-                    "duration_years":        request.form.get('duration_years') or (patient.get('duration_years') if patient else None),
-                    "latest_hba1c":          request.form.get('latest_hba1c') or (patient.get('latest_hba1c') if patient else None),
-                    "blood_glucose":         request.form.get('blood_glucose'),
-                    "blood_pressure":        request.form.get('blood_pressure'),
-                    "egfr":                  request.form.get('egfr') or (patient.get('egfr_ml_min') if patient else None),
-                    "lipid_panel":           request.form.get('lipid_panel'),
-                    "symptoms_notes":        request.form.get('symptoms_notes') or (patient.get('recent_symptoms') if patient else ''),
+                    "patient_id": patient_id,
+                    "name": patient.get('name') if patient else request.form.get('name', 'Unknown'),
+                    "age": request.form.get('age') or (patient.get('age') if patient else None),
+                    "gender": request.form.get('gender') or (patient.get('gender') if patient else None),
+                    "weight": request.form.get('weight') or (patient.get('weight_kg') if patient else None),
+                    "diabetes_type": request.form.get('diabetes_type') or (patient.get('diabetes_type') if patient else None),
+                    "duration_years": request.form.get('duration_years') or (patient.get('duration_years') if patient else None),
+                    "latest_hba1c": request.form.get('latest_hba1c') or (patient.get('latest_hba1c') if patient else None),
+                    "blood_glucose": request.form.get('blood_glucose'),
+                    "blood_pressure": request.form.get('blood_pressure'),
+                    "egfr": request.form.get('egfr') or (patient.get('egfr_ml_min') if patient else None),
+                    "lipid_panel": request.form.get('lipid_panel'),
+                    "symptoms_notes": request.form.get('symptoms_notes') or (patient.get('recent_symptoms') if patient else ''),
                     "treatment_adjustments": request.form.get('treatment_adjustments'),
-                    "current_meds":          patient.get('current_meds') if patient else request.form.get('current_meds', ''),
-                    "comorbidities":         request.form.get('comorbidities') or (patient.get('comorbidities') if patient else None),
-                    "allergies":             request.form.get('allergies') or (patient.get('allergies') if patient else None),
+                    "current_meds": patient.get('current_meds') if patient else request.form.get('current_meds', ''),
+                    "comorbidities": request.form.get('comorbidities') or (patient.get('comorbidities') if patient else None),
+                    "allergies": request.form.get('allergies') or (patient.get('allergies') if patient else None),
                 }
 
                 consult_data = {k: (v if v is not None else '') for k, v in consult_data.items()}
@@ -440,7 +440,37 @@ def consult_stt():
 @app.route('/api/ocr-ask', methods=['POST'])
 @app.route('/api/ask-qna', methods=['POST'])
 def ocr_ask():
-    # ── الـ index لم ينتهِ بعد ──────────────────────────────────────────────
+    global _ocr_ready, _ocr_error
+
+    # ── التحقق من الـ input أولاً ───────────────────────────────────────────
+    body     = request.get_json(silent=True) or {}
+    question = (body.get("question") or body.get("query") or "").strip()
+    if not question:
+        return jsonify({"error": "Question is required."}), 400
+
+    # ── معالجة تلقائية ومسح الكاش إذا كان هناك خطأ '_type' سابق ───────────
+    if _ocr_error and ("_type" in str(_ocr_error) or "chroma" in str(_ocr_error).lower()):
+        print(f"[OCR] Recovering from stored error: {_ocr_error}. Clearing cache and re-indexing...")
+        try:
+            chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
+            if chroma_dir.exists():
+                shutil.rmtree(chroma_dir)
+            
+            pdf_path = Path(
+                os.getenv(
+                    "OCR_PDF_PATH",
+                    "scripts/hcea guidelines_BW 1-25-2021-4-7_page-0001.pdf",
+                )
+            )
+            ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
+            _ocr_ready = True
+            _ocr_error = None
+            print("[OCR] ✓ Recovery successful — index rebuilt.")
+        except Exception as recovery_exc:
+            print(f"[OCR Recovery Error]: {recovery_exc}")
+            return jsonify({"error": f"Recovery failed: {str(recovery_exc)}"}), 500
+
+    # إذا كان لا يزال هناك خطأ آخر غير متعلق بـ chroma/_type
     if _ocr_error:
         return jsonify({"error": f"OCR pipeline failed: {_ocr_error}"}), 500
 
@@ -449,35 +479,48 @@ def ocr_ask():
             "error": "OCR index is still loading — please wait 30–60 s and retry."
         }), 503
 
-    # ── التحقق من الـ input ─────────────────────────────────────────────────
-    body     = request.get_json(silent=True) or {}
-    question = (body.get("question") or body.get("query") or "").strip()
-    if not question:
-        return jsonify({"error": "Question is required."}), 400
-
-    # ── تشغيل RAG + No-RAG بالاعتماد على دالة query_pipeline المحدثة ────────
+    # ── تشغيل RAG مع حماية إضافية أثناء الاستعلام ───────────────────────────
     try:
         results = query_pipeline(question)
-        
-        rag_ans = results.get("rag_answer", "")
-        no_rag_ans = results.get("no_rag_answer", "")
-        
-        return jsonify({
-            "answer": rag_ans,
-            "rag_answer": rag_ans,
-            "no_rag_answer": no_rag_ans,
-            "chunks": results.get("retrieved_chunks", []),
-            "overall_similarity": results.get("overall_similarity_score", 0)
-        })
     except Exception as exc:
-        print(f"[OCR Error]: {exc}")
-        return jsonify({"error": str(exc)}), 500
+        if "_type" in str(exc) or "chroma" in str(exc).lower():
+            print(f"[OCR] Detected incompatible format during query ({exc}). Re-indexing...")
+            try:
+                chroma_dir = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db"))
+                if chroma_dir.exists():
+                    shutil.rmtree(chroma_dir)
+                
+                pdf_path = Path(
+                    os.getenv(
+                        "OCR_PDF_PATH",
+                        "scripts/hcea guidelines_BW 1-25-2021-4-7_page-0001.pdf",
+                    )
+                )
+                ingest_path(str(pdf_path), ocr_lang=OCR_LANGUAGES)
+                results = query_pipeline(question)
+            except Exception as inner_exc:
+                print(f"[OCR Error during query recovery]: {inner_exc}")
+                return jsonify({"error": str(inner_exc)}), 500
+        else:
+            print(f"[OCR Error]: {exc}")
+            return jsonify({"error": str(exc)}), 500
+        
+    rag_ans = results.get("rag_answer", "")
+    no_rag_ans = results.get("no_rag_answer", "")
+    
+    return jsonify({
+        "answer": rag_ans,
+        "rag_answer": rag_ans,
+        "no_rag_answer": no_rag_ans,
+        "chunks": results.get("retrieved_chunks", []),
+        "overall_similarity": results.get("overall_similarity_score", 0)
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Route: GET /api/ocr-status  — تحقق هل الـ index جاهز
 # ═══════════════════════════════════════════════════════════════════════════════
-@app.route('/api/ocr-status', methods=['GET'])
+@app.route('/api/ocr-status', methods=('GET',))
 def ocr_status():
     """
     واجهة بسيطة يستطيع الـ frontend استخدامها للتحقق من جاهزية الـ OCR index.
