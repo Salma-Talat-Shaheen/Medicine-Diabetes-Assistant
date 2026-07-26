@@ -7,21 +7,30 @@
 [![Python](https://img.shields.io/badge/Python-3.10-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Agent-1C3C3C?style=for-the-badge)](https://www.langchain.com/langgraph)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-RAG-FF6F00?style=for-the-badge)](https://www.trychroma.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![OpenRouter](https://img.shields.io/badge/OpenRouter-LLMs-8A2BE2?style=for-the-badge)](https://openrouter.ai/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](./LICENSE)
 
 *Helping clinicians make faster, safer, evidence-backed medicine and dosage decisions.*
 
-[Overview](#-overview) • [Features](#-key-features) • [How It Works](#-how-it-works) • [Getting Started](#-getting-started) • [Project Structure](#-project-structure) • [Team](#-team)
+[Overview](#-overview) • [Live Demo](#-live-demo) • [Features](#-key-features) • [How It Works](#-how-it-works) • [Knowledge Base](#-knowledge-base) • [Getting Started](#-getting-started) • [Project Structure](#-project-structure) • [Team](#-team)
 
 </div>
 
 ---
 
-##  Overview
+## 🌐 Live Demo
 
-**Medicine Assistant** is an intelligent agent that supports clinicians in selecting appropriate **medicines and dosages**, with a focus on **diabetes care**. It combines a **LangGraph-based reasoning agent** with a **Retrieval-Augmented Generation (RAG)** pipeline, using **ChromaDB** as a vector store and **OpenRouter** LLMs for reasoning, so recommendations are grounded in retrieved medical reference data rather than model guesswork alone.
+🔗 **[https://medicine-assistant.onrender.com/](https://medicine-assistant.onrender.com/)**
+
+![Web Application Screenshot](src/web/static/images/webApp.png)
+
+---
+
+## 📖 Overview
+
+**Medicine Assistant** is an intelligent agent that supports clinicians in selecting appropriate **medicines and dosages**, with a focus on **diabetes care**. It combines a **LangGraph-based reasoning agent** with a **Retrieval-Augmented Generation (RAG)** pipeline, using **ChromaDB** as a vector store, **PostgreSQL** for structured data persistence, and **OpenRouter** LLMs for reasoning — so recommendations are grounded in retrieved medical reference data rather than model guesswork alone.
 
 Instead of relying purely on an LLM's internal knowledge (which can be outdated or hallucinated), the agent retrieves relevant, trusted context first, then reasons over it step by step to produce a transparent, traceable recommendation.
 
@@ -29,21 +38,22 @@ Instead of relying purely on an LLM's internal knowledge (which can be outdated 
 
 ---
 
-##  Key Features
+## ✨ Key Features
 
 | | |
 |---|---|
-|  **LangGraph Agent** | Structured, stateful, multi-step reasoning pipeline instead of a single black-box prompt |
-|  **RAG-Powered Retrieval** | Grounded, citation-friendly answers using ChromaDB vector search over medical references |
-|  **Flexible LLM Access** | Swap between models via OpenRouter without changing application code |
-|  **Web Interface** | Lightweight, accessible web app for interactive querying |
-|  **Containerized** | Fully Dockerized for consistent, reproducible deployment anywhere |
-|  **Configurable Pipeline** | Centralized settings for model choice, chunk size, and retrieval depth (top-k) |
-|  **Test Coverage** | Dedicated test suite to validate agent and retrieval behavior |
+| 🧠 **LangGraph Agent** | Structured, stateful, multi-step reasoning pipeline instead of a single black-box prompt |
+| 🔍 **RAG-Powered Retrieval** | Grounded, citation-friendly answers using ChromaDB vector search over medical references |
+| 🗄️ **PostgreSQL Integration** | Structured data storage for query history, session management, and audit logging |
+| 🔄 **Flexible LLM Access** | Swap between models via OpenRouter without changing application code |
+| 🌐 **Web Interface** | Lightweight, accessible web app for interactive querying |
+| 🐳 **Containerized** | Fully Dockerized for consistent, reproducible deployment anywhere |
+| ⚙️ **Configurable Pipeline** | Centralized settings for model choice, chunk size, and retrieval depth (top-k) |
+| 🧪 **Test Coverage** | Dedicated test suite to validate agent and retrieval behavior |
 
 ---
 
-##  How It Works
+## ⚙️ How It Works
 
 ```mermaid
 flowchart LR
@@ -55,23 +65,26 @@ flowchart LR
     E --> F[OpenRouter LLM]
     F --> G[Recommendation + Reasoning]
     G --> H[Web Interface]
+    B <--> I[(PostgreSQL)]
 ```
 
 1. **Query intake**: the user submits a medicine or dosage question through the web interface.
 2. **Agent orchestration**: the LangGraph agent manages state and decides what information is needed.
 3. **Retrieval**: relevant chunks are pulled from ChromaDB based on semantic similarity.
-4. **Grounded generation**: the retrieved context is passed to the LLM via OpenRouter to produce a well-supported answer.
-5. **Response**: the final recommendation and reasoning are returned to the user.
+4. **Structured persistence**: session data, query history, and audit logs are stored in PostgreSQL.
+5. **Grounded generation**: the retrieved context is passed to the LLM via OpenRouter to produce a well-supported answer.
+6. **Response**: the final recommendation and reasoning are returned to the user.
 
 ---
 
-##  Tech Stack
+## 🛠️ Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Language | Python 3.10 |
 | Agent Framework | LangGraph |
-| Retrieval | ChromaDB (vector search) |
+| Vector Retrieval | ChromaDB (semantic search) |
+| Structured Storage | PostgreSQL |
 | LLM Access | OpenRouter |
 | Frontend Tooling | Node.js, Tailwind CSS |
 | Deployment | Docker, Docker Compose |
@@ -79,11 +92,56 @@ flowchart LR
 
 ---
 
-##  Getting Started
+## 📚 Knowledge Base
+
+The assistant's knowledge is grounded in authoritative clinical references on diabetes management. Each source was processed through a rigorous pipeline: documents were converted to tamper-proof images, then **OCR** was applied to extract text and structured table data before indexing into ChromaDB.
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="src/web/static/images/MANAGING DIABETES.png" alt="Managing Diabetes" width="100%"/>
+    </td>
+    <td width="50%" align="center">
+      <img src="src/web/static/images/Diabetes2025.png" alt="Standards of Care in Diabetes 2025" width="100%"/>
+    </td>
+  </tr>
+  <tr>
+    <td>
+
+**📘 Managing Diabetes — Clinical Reference Guide**
+
+A comprehensive clinical reference covering pharmacological management of diabetes, including drug classes, mechanisms of action, dosage ranges, contraindications, and monitoring parameters. Selected chapters were rasterized to images and processed with OCR to faithfully extract tabular drug data.
+
+    </td>
+    <td>
+
+**📗 [Standards of Care in Diabetes — 2025](https://www.binasss.sa.cr/standards-of-care-2025.pdf)**
+
+The ADA's annually updated clinical practice guidelines, covering glycemic targets, medication algorithms, complication screening, and special populations. OCR extraction captured structured protocol tables and recommendation grades.
+
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">
+
+**📙 [WHO Diabetes Management Guidelines](https://extranet.who.int/ncdccs/Data/BTN_D1_Diabetes%20Management%20guidelines.pdf)**
+
+The World Health Organization's evidence-based guidelines for diabetes management in primary and secondary care settings, with a focus on resource-limited environments. Provides WHO-recommended first- and second-line treatment pathways and monitoring protocols.
+
+  </td>
+  </tr>
+</table>
+
+> All three sources were converted to non-editable image format, then processed with OCR to extract both free text and table content, ensuring accurate and faithful representation of the original clinical data in the vector store.
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
 - [Conda](https://docs.conda.io/) (recommended) or a Python 3.10 virtual environment
 - An [OpenRouter](https://openrouter.ai/) API key
+- A running [PostgreSQL](https://www.postgresql.org/) instance
 - Docker (optional, for containerized setup)
 
 ### 1. Clone the repository
@@ -108,7 +166,7 @@ pip install -e ".[dev]"
 ```bash
 cp .env.example .env
 ```
-Then open `.env` and set your `OPENROUTER_API_KEY`. Additional settings (model name, chunk size, top-k retrieval) can be tuned in `src/config.py`.
+Then open `.env` and set your `OPENROUTER_API_KEY` and `DATABASE_URL` (PostgreSQL connection string). Additional settings (model name, chunk size, top-k retrieval) can be tuned in `src/config.py`.
 
 ### 5. Run the app
 ```bash
@@ -122,7 +180,7 @@ docker-compose up --build
 
 ---
 
-##  Project Structure
+## 📁 Project Structure
 
 ```
 Medicine-Diabetes-Assistant/
@@ -147,7 +205,7 @@ Medicine-Diabetes-Assistant/
 
 ---
 
-##  Testing
+## 🧪 Testing
 
 ```bash
 pytest tests/
@@ -155,7 +213,7 @@ pytest tests/
 
 ---
 
-##  Contributing
+## 🤝 Contributing
  
 Contributions, issues, and feature requests are welcome!
  
@@ -167,11 +225,11 @@ Contributions, issues, and feature requests are welcome!
    
 ---
 
-##  Team
+## 👥 Team
 
 This project was built with dedication by:
 
-| Contributor | Rule |
+| Contributor | Role |
 |---|---|
 | **Salma Shaheen** | Development |
 | **Hebatallah AbuHarb** | Development |
@@ -179,7 +237,7 @@ This project was built with dedication by:
 
 ---
 
-##  License
+## 📄 License
 
 This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
 
