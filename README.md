@@ -24,7 +24,9 @@
 
 🔗 **[https://medicine-assistant.onrender.com/](https://medicine-assistant.onrender.com/)**
 
-![Web Application Screenshot](src/web/static/images/webApp.png)
+<p align="center">
+  <img src="src/web/static/images/webApp.png" alt="Web Application Screenshot" width="70%"/>
+</p>
 
 ---
 
@@ -99,40 +101,22 @@ The assistant's knowledge is grounded in authoritative clinical references on di
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="src/web/static/images/MANAGING DIABETES.png" alt="Managing Diabetes" width="100%"/>
+      <img src="src/web/static/images/MANAGING DIABETES.png" alt="Managing Diabetes" height="320"/>
     </td>
     <td width="50%" align="center">
-      <img src="src/web/static/images/Diabetes2025.png" alt="Standards of Care in Diabetes 2025" width="100%"/>
+      <img src="src/web/static/images/Diabetes2025.png" alt="Standards of Care in Diabetes 2025" height="320"/>
     </td>
-  </tr>
-  <tr>
-    <td>
-
-**📘 Managing Diabetes — Clinical Reference Guide**
-
-A comprehensive clinical reference covering pharmacological management of diabetes, including drug classes, mechanisms of action, dosage ranges, contraindications, and monitoring parameters. Selected chapters were rasterized to images and processed with OCR to faithfully extract tabular drug data.
-
-    </td>
-    <td>
-
-**📗 [Standards of Care in Diabetes — 2025](https://www.binasss.sa.cr/standards-of-care-2025.pdf)**
-
-The ADA's annually updated clinical practice guidelines, covering glycemic targets, medication algorithms, complication screening, and special populations. OCR extraction captured structured protocol tables and recommendation grades.
-
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">
-
-**📙 [WHO Diabetes Management Guidelines](https://extranet.who.int/ncdccs/Data/BTN_D1_Diabetes%20Management%20guidelines.pdf)**
-
-The World Health Organization's evidence-based guidelines for diabetes management in primary and secondary care settings, with a focus on resource-limited environments. Provides WHO-recommended first- and second-line treatment pathways and monitoring protocols.
-
-  </td>
   </tr>
 </table>
 
-> All three sources were converted to non-editable image format, then processed with OCR to extract both free text and table content, ensuring accurate and faithful representation of the original clinical data in the vector store.
+**📘 Managing Diabetes — Clinical Reference Guide**
+A WHO/Bhutan clinical guide for health workers covering diabetes pharmacology, dosage protocols, and monitoring parameters. Converted to images and processed with OCR to extract tabular drug data.
+
+**📗 [Standards of Care in Diabetes — 2025](https://www.binasss.sa.cr/standards-of-care-2025.pdf)**
+The ADA's 2025 clinical practice guidelines covering glycemic targets, medication algorithms, and special populations. OCR was used to capture structured protocol tables and graded recommendations.
+
+**📙 [WHO Diabetes Management Guidelines](https://extranet.who.int/ncdccs/Data/BTN_D1_Diabetes%20Management%20guidelines.pdf)**
+The World Health Organization's evidence-based guidelines for diabetes management in primary care settings. Provides WHO-recommended first- and second-line treatment pathways and monitoring protocols.
 
 ---
 
