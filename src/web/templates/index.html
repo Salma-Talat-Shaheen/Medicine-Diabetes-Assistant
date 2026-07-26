@@ -59,6 +59,95 @@
   </div>
   <!-- ================= نهاية قسم اسأل الذكاء الاصطناعي ================= -->
 
+  <!-- ================= بداية قسم OCR RAG ================= -->
+  <div class="py-8">
+    <div class="container mx-auto px-4">
+      <div class="max-w-4xl mx-auto bg-gray-800 rounded-xl p-6 md:p-8 border border-gray-700 shadow-lg">
+
+        <!-- Header -->
+        <div class="text-center mb-6">
+          <h3 class="text-2xl font-bold text-gray-100 mb-1">
+            📄 Ask the Scanned Guideline
+          </h3>
+          <p class="text-gray-400 text-sm">
+            OCR-powered search on the HCEA 2021 Diabetes Guidelines
+            — compares RAG answer vs. LLM-only answer with similarity scores
+          </p>
+        </div>
+
+        <!-- Input row -->
+        <div class="flex flex-col sm:flex-row gap-3 mb-4">
+          <input
+            type="text"
+            id="ocrQuestion"
+            class="flex-1 bg-gray-900 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors"
+            placeholder="e.g., What is the recommended HbA1c target?">
+          <button
+            type="button"
+            id="ocrAskBtn"
+            class="bg-primary hover:bg-primary-dark text-white font-semibold px-6 py-3 rounded-lg text-sm transition-colors shadow-sm whitespace-nowrap">
+            Ask Guideline AI
+          </button>
+        </div>
+
+        <!-- Loading spinner -->
+        <div id="ocrSpinner" class="hidden text-gray-400 text-sm flex items-center gap-2 mb-4">
+          <svg class="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Running OCR pipeline…
+        </div>
+
+        <!-- Error banner -->
+        <div id="ocrError" class="hidden bg-red-900/40 border border-red-700 text-red-300 text-sm rounded-lg px-4 py-3 mb-4"></div>
+
+        <!-- Results (hidden until answer arrives) -->
+        <div id="ocrResults" class="hidden space-y-4">
+
+          <!-- Average similarity badge -->
+          <div class="flex items-center gap-3">
+            <span class="text-xs text-gray-400 uppercase tracking-wider">Avg. similarity</span>
+            <span id="ocrAvgScore" class="text-sm font-semibold text-primary"></span>
+            <span id="ocrAvgLabel" class="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-300"></span>
+          </div>
+
+          <!-- Two-column: RAG answer | No-RAG answer -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            <!-- RAG answer -->
+            <div class="bg-gray-900/80 rounded-lg p-5 border-l-4 border-primary border-y border-r border-gray-700">
+              <h4 class="text-xs font-bold text-primary uppercase tracking-wider mb-2">
+                📚 RAG Answer
+                <span class="ml-1 text-gray-500 normal-case font-normal">(grounded in guideline)</span>
+              </h4>
+              <div id="ocrRagAnswer" class="text-gray-200 text-sm leading-relaxed"></div>
+            </div>
+
+            <!-- No-RAG answer -->
+            <div class="bg-gray-900/80 rounded-lg p-5 border-l-4 border-gray-500 border-y border-r border-gray-700">
+              <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                🧠 LLM-only Answer
+                <span class="ml-1 text-gray-500 normal-case font-normal">(no context)</span>
+              </h4>
+              <div id="ocrNoRagAnswer" class="text-gray-300 text-sm leading-relaxed"></div>
+            </div>
+          </div>
+
+          <!-- Retrieved chunks table -->
+          <div>
+            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+              🔍 Retrieved Chunks — Similarity Scores
+            </h4>
+            <div id="ocrChunks" class="space-y-2"></div>
+          </div>
+
+        </div><!-- /ocrResults -->
+      </div>
+    </div>
+  </div>
+  <!-- ================= نهاية قسم OCR RAG ================= -->
+
   <!-- How it Works (three steps) -->
   <div class="py-6">
     <div class="container mx-auto px-4">
@@ -239,6 +328,102 @@
         });
       }
     });
+
+    // 3. OCR-RAG Q&A Script
+    (function () {
+      const btn       = document.getElementById('ocrAskBtn');
+      const input     = document.getElementById('ocrQuestion');
+      const spinner   = document.getElementById('ocrSpinner');
+      const errorBox  = document.getElementById('ocrError');
+      const results   = document.getElementById('ocrResults');
+      const ragAns    = document.getElementById('ocrRagAnswer');
+      const noRagAns  = document.getElementById('ocrNoRagAnswer');
+      const chunksBox = document.getElementById('ocrChunks');
+      const avgScore  = document.getElementById('ocrAvgScore');
+      const avgLabel  = document.getElementById('ocrAvgLabel');
+
+      // Label → colour class
+      const labelClass = {
+        '🟢 Excellent': 'text-green-400',
+        '🟡 Good':      'text-yellow-400',
+        '🟠 Moderate':  'text-orange-400',
+        '🔴 Weak':      'text-red-400',
+      };
+
+      function showError(msg) {
+        errorBox.textContent = msg;
+        errorBox.classList.remove('hidden');
+      }
+
+      function hideAll() {
+        errorBox.classList.add('hidden');
+        results.classList.add('hidden');
+      }
+
+      function ask() {
+        const question = input.value.trim();
+        if (!question) return;
+
+        hideAll();
+        spinner.classList.remove('hidden');
+        btn.disabled = true;
+
+        fetch('/api/ocr-ask', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ question }),
+        })
+        .then(res => res.json())
+        .then(data => {
+          spinner.classList.add('hidden');
+          btn.disabled = false;
+
+          if (data.error) { showError(data.error); return; }
+
+          // ── Fill RAG answer ────────────────────────────────────────────────
+          ragAns.innerHTML = data.rag_answer
+            .split('\n').filter(Boolean)
+            .map(l => `<p>${l}</p>`).join('');
+
+          // ── Fill No-RAG answer ─────────────────────────────────────────────
+          noRagAns.innerHTML = data.no_rag_answer
+            .split('\n').filter(Boolean)
+            .map(l => `<p>${l}</p>`).join('');
+
+          // ── Avg similarity badge ───────────────────────────────────────────
+          avgScore.textContent = data.avg_similarity.toFixed(4);
+          const bestLabel = data.chunks?.[0]?.label || '';
+          avgLabel.textContent = bestLabel;
+          avgLabel.className = 'text-xs px-2 py-0.5 rounded-full bg-gray-700 ' +
+            (labelClass[bestLabel] || 'text-gray-300');
+
+          // ── Chunks table ───────────────────────────────────────────────────
+          chunksBox.innerHTML = (data.chunks || []).map(c => `
+            <div class="bg-gray-900 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-start gap-2 border border-gray-700">
+              <div class="flex items-center gap-2 min-w-[160px]">
+                <span class="text-xs font-bold text-gray-500">#${c.rank}</span>
+                <span class="text-sm font-semibold ${labelClass[c.label] || 'text-gray-300'}">${c.score.toFixed(4)}</span>
+                <span class="text-xs text-gray-400">${c.label}</span>
+              </div>
+              <div class="flex-1 text-xs text-gray-400 leading-relaxed">
+                <span class="text-gray-500 mr-1">page ${c.page}</span>
+                "${c.preview}…"
+              </div>
+            </div>
+          `).join('');
+
+          results.classList.remove('hidden');
+        })
+        .catch(() => {
+          spinner.classList.add('hidden');
+          btn.disabled = false;
+          showError('Server connection error. Is Flask running?');
+        });
+      }
+
+      if (btn) btn.addEventListener('click', ask);
+      if (input) input.addEventListener('keypress', e => { if (e.key === 'Enter') ask(); });
+    })();
   </script>
 </div>
 {% endblock %}
