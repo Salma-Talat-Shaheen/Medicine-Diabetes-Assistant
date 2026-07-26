@@ -1,369 +1,404 @@
-#!/usr/bin/env python
-"""
-Multimodal PDF ingestion script.
-Ingestion pipeline that pulling out the text and the visual content of a PDF -- embedded raster images
-(figures, charts) AND vector-drawn diagrams that don't exist as an embedded image.
-Each extracted image is:
-  1. Saved to disk under --image-dir.
-  2. Sent to a vision-capable LLM (via OpenRouter, same pattern as llm.py)
-     which produces a clinically-useful text description -- for algorithms
-     and tables it's asked to transcribe the actual decision steps/values,
-     not just describe the picture.
-  3. Wrapped in a langchain Document whose page_content is that caption and
-     whose metadata points back to the saved image file, page number, and
-     source PDF.
-Downstream, src/agent.py's context-builder can check metadata["content_type"]
-== "image" and include metadata["image_path"] when it retrieves one of
-these chunks, and src/web/app.py's WeasyPrint report renderer can embed that
-image file directly in the generated PDF report.
-Usage:
-    python scripts/ingest_pdf_multimodal.py path/to/guideline.pdf
-    python scripts/ingest_pdf_multimodal.py path/to/dir --image-dir data/images
-Requires (add to pyproject.toml):
-    pymupdf>=1.24.0
-    Pillow>=10.0.0
-"""
-from __future__ import annotations
+
+!/usr/bin/env python
+"""Script to ingest PDF files into Chroma vector store using OpenRouter embeddings."""
+
 import argparse
-import base64
 import hashlib
 import io
+import json
 import os
-import re
+import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
 from pathlib import Path
-import fitz  # PyMuPDF
+
+import fitz  # PyMuPDF - used to rasterize pages for OCR
+import pytesseract
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from PIL import Image
 from tqdm import tqdm
+
+# Load environment variables
 load_dotenv()
 
+# Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 CHROMA_PERSIST_DIRECTORY = os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "medicine_docs")
-VISION_MODEL_NAME = os.getenv("VISION_MODEL_NAME", "openai/gpt-4o-mini")
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "5"))
-# Skip anything smaller than this -- bullets, checkbox glyphs, tiny icons.
-MIN_IMAGE_DIM_PX = 120
-# Full-page render resolution when we fall back to rasterizing a page.
-PAGE_RENDER_DPI = 200
-# If the exact same image (by content hash) shows up more than this many
-# times across the document, treat it as a repeating decorative element
-# (header/footer logo, watermark) and drop it after the first occurrence.
-REPEAT_DECORATIVE_THRESHOLD = 2
-FIGURE_KEYWORDS = re.compile(
-    r"\b(figure|fig\.|algorithm|table|flowchart|diagram)\s*\d*", re.IGNORECASE
-)
-CAPTION_PROMPT = """You are helping build a searchable index of figures from a \
-clinical practice guideline for a medical RAG system.
-Look at this image extracted from the document and respond in ONE of two ways:
-If this is a genuine clinical figure (an algorithm/flowchart, a decision \
-tree, a dosing/titration table, a data chart, a diagram of a process, etc.), \
-write a dense, factual description a clinician could search for and act on. \
-Explicitly transcribe: the steps/branches of any algorithm in order, the \
-row/column values of any table, and any numeric thresholds, dosages, or \
-units shown. Do not summarize vaguely -- capture the actual decision logic \
-and numbers. Keep it under 300 words, plain text, no markdown.
-If this is NOT clinically meaningful content -- a logo, a page border, an \
-icon, a watermark, decorative artwork, or a blank/near-blank image -- \
-respond with exactly the single word: DECORATIVE
-Respond with the description or DECORATIVE only, nothing else."""
-@dataclass
-class ExtractedImage:
-    """A candidate image pulled from the PDF, before captioning."""
-    page_num: int  # 0-indexed
-    image_path: Path
-    source_type: str  # "embedded" or "full_page"
-    content_hash: str
-    caption: str = field(default="", repr=False)
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "10"))
+INGEST_BATCH_SIZE = int(os.getenv("INGEST_BATCH_SIZE", "64"))
+
+# OCR configuration (used for scanned PDFs with no text layer)
+OCR_CACHE_DIR = os.getenv("OCR_CACHE_DIR", "./ocr_cache")
+OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+ara")
+OCR_DPI = int(os.getenv("OCR_DPI", "300"))
+# If the average extracted characters per page falls below this, the PDF is
+# treated as scanned (image-only) and routed through OCR instead.
+MIN_TEXT_CHARS_PER_PAGE = int(os.getenv("MIN_TEXT_CHARS_PER_PAGE", "20"))
+
+
 def validate_config() -> None:
+    """Validate that required configuration is set."""
     if not OPENROUTER_API_KEY:
         raise ValueError(
             "OPENROUTER_API_KEY environment variable is required. "
             "Please set it in your .env file or environment."
         )
-def get_vision_llm() -> ChatOpenAI:
-    """Vision-capable chat model via OpenRouter (same pattern as src/llm.py)."""
-    return ChatOpenAI(
-        model=VISION_MODEL_NAME,
-        api_key=lambda: OPENROUTER_API_KEY,  # type: ignore
-        base_url=OPENROUTER_BASE_URL,
-        temperature=0.0,
-        max_tokens=500,
-    )
+    if shutil.which("tesseract") is None:
+        print(
+            " Warning: the 'tesseract' binary was not found on PATH. "
+            "OCR fallback for scanned PDFs will fail until it's installed "
+            "(e.g. `sudo apt-get install tesseract-ocr tesseract-ocr-ara`).",
+            file=sys.stderr,
+        )
+
+
 def get_embeddings() -> OpenAIEmbeddings:
+    """Create and return OpenAI embeddings configured for OpenRouter."""
+    if not OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY is not set")
+    
     return OpenAIEmbeddings(
         model="openai/text-embedding-3-small",
         api_key=lambda: OPENROUTER_API_KEY,  # type: ignore
         base_url=OPENROUTER_BASE_URL,
     )
-def get_vector_store(embeddings: OpenAIEmbeddings, persist_directory: str) -> Chroma:
+
+
+def get_vector_store(embeddings: OpenAIEmbeddings) -> Chroma:
+    """Get or create the Chroma vector store."""
     return Chroma(
         collection_name=COLLECTION_NAME,
         embedding_function=embeddings,
-        persist_directory=persist_directory,
+        persist_directory=CHROMA_PERSIST_DIRECTORY,
     )
-# --------------------------------------------------------------------------
-# Step 1: extract candidate images from the PDF
-# --------------------------------------------------------------------------
-def _page_looks_like_figure(page: fitz.Page) -> bool:
-    """Heuristic: does the page text mention Figure/Algorithm/Table/etc.?"""
-    return bool(FIGURE_KEYWORDS.search(page.get_text()))
-def _save_png(image: Image.Image, out_path: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    if image.mode not in ("RGB", "L"):
-        image = image.convert("RGB")
-    image.save(out_path, format="PNG")
-def extract_images_from_pdf(
-    pdf_path: Path, image_dir: Path, min_dim: int = MIN_IMAGE_DIM_PX
-) -> list[ExtractedImage]:
-    """
-    Pull out both embedded raster images and, for pages that look like they
-    contain a figure/algorithm/table but had no (large enough) embedded
-    image, a full-page render -- this catches vector-drawn diagrams.
-    """
-    doc = fitz.open(str(pdf_path))
-    doc_stem = pdf_path.stem
-    candidates: list[ExtractedImage] = []
-    hash_counts: dict[str, int] = {}
-    print(f" Scanning {pdf_path.name} for images across {len(doc)} pages...")
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        page_had_large_embedded_image = False
-        # --- 1a. embedded raster images ---
-        for img_index, img_info in enumerate(page.get_images(full=True)):
-            xref = img_info[0]
-            try:
-                base_image = doc.extract_image(xref)
-                image_bytes = base_image["image"]
-                with Image.open(io.BytesIO(image_bytes)) as im:
-                    width, height = im.size
-                    if width < min_dim or height < min_dim:
-                        continue  # icon/bullet/decoration, too small to matter
-                    page_had_large_embedded_image = True
-                    content_hash = hashlib.md5(image_bytes).hexdigest()
-                    hash_counts[content_hash] = hash_counts.get(content_hash, 0) + 1
-                    out_path = (
-                        image_dir
-                        / f"{doc_stem}_p{page_num + 1}_img{img_index}_{content_hash[:8]}.png"
-                    )
-                    if not out_path.exists():
-                        _save_png(im, out_path)
-                    candidates.append(
-                        ExtractedImage(
-                            page_num=page_num,
-                            image_path=out_path,
-                            source_type="embedded",
-                            content_hash=content_hash,
-                        )
-                    )
-            except Exception as e:  # corrupt / unsupported image stream
-                print(f"    Skipping image xref {xref} on page {page_num + 1}: {e}")
-        # --- 1b. fallback: full-page render for vector-drawn figures ---
-        # If the page text suggests a figure/algorithm but we found no
-        # substantial embedded raster image, the figure is very likely a
-        # vector drawing (lines/boxes/arrows) -- rasterize the whole page.
-        if _page_looks_like_figure(page) and not page_had_large_embedded_image:
-            pix = page.get_pixmap(dpi=PAGE_RENDER_DPI)
-            image_bytes = pix.tobytes("png")
-            content_hash = hashlib.md5(image_bytes).hexdigest()
-            hash_counts[content_hash] = hash_counts.get(content_hash, 0) + 1
-            out_path = image_dir / f"{doc_stem}_p{page_num + 1}_fullpage.png"
-            if not out_path.exists():
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                pix.save(str(out_path))
-            candidates.append(
-                ExtractedImage(
-                    page_num=page_num,
-                    image_path=out_path,
-                    source_type="full_page",
-                    content_hash=content_hash,
-                )
-            )
-    doc.close()
-    # --- Drop repeating decorative elements (logos/watermarks) ---
-    # Keep only the first occurrence of any hash that repeats more than the
-    # threshold; everything after that is almost certainly not a unique
-    # clinical figure.
-    seen: dict[str, int] = {}
-    deduped: list[ExtractedImage] = []
-    for cand in candidates:
-        seen[cand.content_hash] = seen.get(cand.content_hash, 0) + 1
-        is_repeating_decoration = (
-            hash_counts[cand.content_hash] > REPEAT_DECORATIVE_THRESHOLD
-        )
-        if is_repeating_decoration and seen[cand.content_hash] > 1:
-            continue
-        deduped.append(cand)
-    print(
-        f"  ✓ Found {len(candidates)} candidate image(s), "
-        f"{len(deduped)} after removing repeated decorative elements"
-    )
-    return deduped
-# --------------------------------------------------------------------------
-# Step 2: caption each image with a vision LLM
-# --------------------------------------------------------------------------
-def _encode_image_b64(path: Path) -> str:
-    with open(path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
-def caption_image(llm: ChatOpenAI, image: ExtractedImage, retries: int = 2) -> str:
-    """Call the vision model once, with a couple of retries on failure."""
-    b64 = _encode_image_b64(image.image_path)
-    message = HumanMessage(
-        content=[
-            {"type": "text", "text": CAPTION_PROMPT},
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-        ]
-    )
-    last_error: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            response = llm.invoke([message])
-            return response.content.strip()
-        except Exception as e:  # transient API/network errors
-            last_error = e
-            if attempt < retries:
-                continue
-    print(f"    Captioning failed for {image.image_path.name}: {last_error}")
-    return "DECORATIVE"  # fail safe: don't index something we couldn't read
-def caption_images_concurrently(
-    images: list[ExtractedImage], max_workers: int = MAX_WORKERS
-) -> list[ExtractedImage]:
-    """Caption all images in parallel (network-bound), return the kept ones."""
-    llm = get_vision_llm()
-    kept: list[ExtractedImage] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_image = {
-            executor.submit(caption_image, llm, img): img for img in images
-        }
-        for future in tqdm(
-            as_completed(future_to_image), total=len(images), desc="Captioning images"
-        ):
-            img = future_to_image[future]
-            caption = future.result()
-            if caption.strip().upper() == "DECORATIVE":
-                continue
-            img.caption = caption
-            kept.append(img)
-    print(f"  ✓ {len(kept)}/{len(images)} images kept as clinically meaningful")
-    return kept
-# --------------------------------------------------------------------------
-# Step 3: build Documents and add them to the vector store
-# --------------------------------------------------------------------------
-def build_image_documents(
-    images: list[ExtractedImage], pdf_path: Path
-) -> list[Document]:
-    documents = []
-    for img in images:
-        documents.append(
-            Document(
-                page_content=(
-                    f"[Figure on page {img.page_num + 1} of {pdf_path.name}]\n"
-                    f"{img.caption}"
-                ),
-                metadata={
-                    "source": str(pdf_path),
-                    "page": img.page_num + 1,
-                    "content_type": "image",
-                    "image_path": str(img.image_path),
-                    "extraction_method": img.source_type,
-                },
-            )
-        )
-    return documents
+
+
 def add_documents_concurrently(
-    vector_store: Chroma, documents: list[Document], max_workers: int, batch_size: int
+    vector_store: Chroma, documents: list, max_workers: int, batch_size: int
 ) -> int:
-    if not documents:
-        return 0
+    """
+    Add documents to the vector store in parallel using a thread pool.
+
+    Args:
+        vector_store: The Chroma vector store instance.
+        documents: A list of documents to add.
+        max_workers: The maximum number of concurrent threads.
+        batch_size: The number of documents to process in each thread.
+
+    Returns:
+        The total number of chunks added.
+    """
+    total_chunks = len(documents)
+    # Split documents into batches
     batches = [
-        documents[i : i + batch_size] for i in range(0, len(documents), batch_size)
+        documents[i : i + batch_size] for i in range(0, total_chunks, batch_size)
     ]
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        print(
+            f"Starting concurrent ingestion with {max_workers} workers and {len(batches)} batches..."
+        )
+        # Create a future for each batch
         futures = [
             executor.submit(vector_store.add_documents, batch) for batch in batches
         ]
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Indexing image captions"
-        ):
-            future.result()
-    return len(documents)
-# --------------------------------------------------------------------------
-# End-to-end pipeline for a single PDF
-# --------------------------------------------------------------------------
-def ingest_pdf_multimodal(
-    pdf_path: Path, image_dir: Path, vector_store: Chroma, min_dim: int
+
+        # Use tqdm for a progress bar
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Ingesting Batches"):
+            future.result()  # Wait for the batch to complete and raise any exceptions
+
+    return total_chunks
+
+
+def needs_ocr(documents: list) -> bool:
+    """
+    Heuristic to detect scanned PDFs.
+
+    If a PDF has no real text layer (i.e. every page is a picture of a page,
+    like a scanned book), PyPDFLoader will still "succeed" but return pages
+    with empty or near-empty text. We flag that here so it can be routed
+    through OCR instead of being silently ingested as blank chunks.
+    """
+    if not documents:
+        return True
+    total_chars = sum(len(doc.page_content.strip()) for doc in documents)
+    avg_chars_per_page = total_chars / len(documents)
+    return avg_chars_per_page < MIN_TEXT_CHARS_PER_PAGE
+
+
+def _ocr_cache_path(pdf_path: Path, ocr_lang: str) -> Path:
+    """Build a stable cache file path for a given PDF's OCR output.
+
+    The key includes file size + modified time + language, so if the source
+    PDF or the OCR language changes, the cache is naturally invalidated and
+    OCR reruns; otherwise we reuse the saved text forever.
+    """
+    cache_dir = Path(OCR_CACHE_DIR)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    stat = pdf_path.stat()
+    key = f"{pdf_path.resolve()}::{stat.st_size}::{int(stat.st_mtime)}::{ocr_lang}"
+    digest = hashlib.md5(key.encode("utf-8")).hexdigest()[:16]
+    return cache_dir / f"{pdf_path.stem}.{digest}.ocr.json"
+
+
+def ocr_pdf_to_documents(pdf_path: str, ocr_lang: str = OCR_LANGUAGES) -> list:
+    """
+    Extract text from a scanned PDF by rasterizing each page and running
+    Tesseract OCR on it. Results are cached to disk (OCR_CACHE_DIR) as JSON
+    so the expensive OCR pass only ever runs once per PDF file/language.
+
+    Returns a list of langchain Document objects, one per page, with
+    metadata identical in shape to what PyPDFLoader produces (source, page).
+    """
+    pdf_file = Path(pdf_path)
+    cache_path = _ocr_cache_path(pdf_file, ocr_lang)
+
+    if cache_path.exists():
+        print(f"  ↺ Found cached OCR text, skipping re-OCR: {cache_path.name}")
+        cached_pages = json.loads(cache_path.read_text(encoding="utf-8"))
+        return [
+            Document(
+                page_content=p["text"],
+                metadata={"source": str(pdf_file), "page": p["page"]},
+            )
+            for p in cached_pages
+        ]
+
+    print(f"  No usable text layer found — running OCR ({ocr_lang}) on {pdf_file.name}")
+    pdf_doc = fitz.open(str(pdf_file))
+    zoom = OCR_DPI / 72.0  # PyMuPDF renders at 72 DPI by default
+    matrix = fitz.Matrix(zoom, zoom)
+
+    pages_data = []
+    documents = []
+
+    for page_num in tqdm(range(len(pdf_doc)), desc="  OCR pages", unit="page"):
+        page = pdf_doc[page_num]
+        pix = page.get_pixmap(matrix=matrix)
+        image = Image.open(io.BytesIO(pix.tobytes("png")))
+        text = pytesseract.image_to_string(image, lang=ocr_lang)
+
+        pages_data.append({"page": page_num + 1, "text": text})
+        documents.append(
+            Document(
+                page_content=text,
+                metadata={"source": str(pdf_file), "page": page_num + 1},
+            )
+        )
+
+    pdf_doc.close()
+
+    # Persist the extracted text once, so future runs (or re-ingests) never
+    # need to OCR this file again.
+    cache_path.write_text(
+        json.dumps(pages_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"  OCR text cached to: {cache_path}")
+
+    return documents
+
+
+def load_pdf_documents(
+    pdf_path: str, force_ocr: bool = False, ocr_lang: str = OCR_LANGUAGES
+) -> list:
+    """
+    Load a PDF's page-level text, automatically falling back to OCR when the
+    PDF has no (or a negligible) extractable text layer — i.e. it's a
+    scanned document rather than a "digital" PDF.
+    """
+    pdf_file = Path(pdf_path)
+
+    if not force_ocr:
+        documents = PyPDFLoader(str(pdf_file)).load()
+        if not needs_ocr(documents):
+            print(f"  ✓ Loaded {len(documents)} pages (native text layer)")
+            return documents
+        print("   Little to no extractable text detected — treating as a scanned PDF")
+    else:
+        print("  --force-ocr set — skipping native text extraction")
+
+    return ocr_pdf_to_documents(str(pdf_file), ocr_lang=ocr_lang)
+
+
+def ingest_pdf(
+    pdf_path: str,
+    vector_store: Chroma,
+    force_ocr: bool = False,
+    ocr_lang: str = OCR_LANGUAGES,
 ) -> None:
-    print(f"\n Processing (multimodal): {pdf_path.name}")
-    candidates = extract_images_from_pdf(pdf_path, image_dir, min_dim=min_dim)
-    if not candidates:
-        print("  (no candidate images found)")
-        return
-    kept = caption_images_concurrently(candidates)
-    if not kept:
-        print("  (no images were clinically meaningful after captioning)")
-        return
-    documents = build_image_documents(kept, pdf_path)
-    total = add_documents_concurrently(
-        vector_store, documents, max_workers=MAX_WORKERS, batch_size=32
+    """
+    Ingest a single PDF file into the vector store.
+
+    Args:
+        pdf_path: Path to the PDF file to ingest.
+        vector_store: The Chroma vector store instance.
+        force_ocr: If True, always OCR the PDF instead of trying to reuse
+            an existing text layer.
+        ocr_lang: Tesseract language string to use if OCR is triggered.
+
+    Raises:
+        FileNotFoundError: If the PDF file doesn't exist.
+        ValueError: If the file is not a PDF.
+    """
+    pdf_file = Path(pdf_path)
+
+    print(f"Loading PDF: {pdf_file.name}")
+
+    # Load PDF documents (falls back to OCR automatically for scanned PDFs)
+    documents = load_pdf_documents(str(pdf_file), force_ocr=force_ocr, ocr_lang=ocr_lang)
+
+    # Split documents into chunks
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        length_function=len,
+        separators=["\n\n", "\n", " ", ""],
     )
-    print(f"Indexed {total} image caption(s) from {pdf_path.name}")
+    splits = text_splitter.split_documents(documents)
+    print(f"  ✓ Split into {len(splits)} chunks")
+
+    # Add to vector store concurrently
+    add_documents_concurrently(
+        vector_store, splits, max_workers=MAX_WORKERS, batch_size=INGEST_BATCH_SIZE
+    )
+    print(f"Successfully ingested {pdf_file.name}")
+
+
+def ingest_directory(
+    directory_path: str,
+    vector_store: Chroma,
+    force_ocr: bool = False,
+    ocr_lang: str = OCR_LANGUAGES,
+) -> None:
+    """
+    Ingest all PDF files from a directory into the vector store.
+
+    Args:
+        directory_path: Path to the directory containing PDF files.
+        vector_store: The Chroma vector store instance.
+        force_ocr: If True, always OCR every PDF instead of trying to reuse
+            an existing text layer.
+        ocr_lang: Tesseract language string to use if OCR is triggered.
+
+    Raises:
+        FileNotFoundError: If the directory doesn't exist.
+        ValueError: If the directory contains no PDF files.
+    """
+    directory = Path(directory_path)
+
+    # Validate directory exists
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Directory not found: {directory_path}")
+
+    # Find all PDF files
+    pdf_files = list(directory.glob("**/*.pdf"))
+
+    if not pdf_files:
+        raise ValueError(f"No PDF files found in: {directory_path}")
+
+    print(f"Found {len(pdf_files)} PDF file(s)")
+
+    # Setup text splitter
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        length_function=len,
+        separators=["\n\n", "\n", " ", ""],
+    )
+
+    all_splits = []
+
+    for pdf_file in pdf_files:
+        print(f"\nProcessing: {pdf_file.name}")
+        documents = load_pdf_documents(
+            str(pdf_file), force_ocr=force_ocr, ocr_lang=ocr_lang
+        )
+        splits = text_splitter.split_documents(documents)
+        all_splits.extend(splits)
+        print(f"  ✓ Split into {len(splits)} chunks")
+
+    print("\n---")
+    print(f"Total documents to ingest: {len(all_splits)}")
+    total_chunks = add_documents_concurrently(
+        vector_store, all_splits, max_workers=MAX_WORKERS, batch_size=INGEST_BATCH_SIZE
+    )
+    print(f"\nSuccessfully ingested {total_chunks} chunks from directory.")
+
+
 def main() -> None:
+    """Main entry point for the ingest script."""
     parser = argparse.ArgumentParser(
-        description="Extract, caption, and index images/diagrams from PDF(s) "
-        "into the same Chroma store used for text chunks."
-    )
-    parser.add_argument("path", type=str, help="PDF file or directory of PDFs")
-    parser.add_argument(
-        "--db-path", type=str, default=None, help="Chroma persist directory"
+        description="Ingest PDF files into Chroma vector store using OpenRouter embeddings"
     )
     parser.add_argument(
-        "--image-dir",
+        "path",
         type=str,
-        default="data/images",
-        help="Where extracted image files are saved (default: data/images)",
+        help="Path to a PDF file or directory containing PDF files",
     )
     parser.add_argument(
-        "--min-image-dim",
-        type=int,
-        default=MIN_IMAGE_DIM_PX,
-        help="Minimum width/height in pixels to consider an embedded image "
-        "(filters out icons/bullets)",
+        "--db-path",
+        type=str,
+        default=None,
+        help=f"Custom Chroma database path (default: {CHROMA_PERSIST_DIRECTORY})",
     )
+    parser.add_argument(
+        "--force-ocr",
+        action="store_true",
+        help="Always OCR PDFs, even if a native text layer is detected "
+        "(useful if a PDF has a garbled or partial text layer).",
+    )
+    parser.add_argument(
+        "--ocr-lang",
+        type=str,
+        default=None,
+        help=f"Tesseract language(s) to use for OCR, e.g. 'eng+ara' "
+        f"(default: {OCR_LANGUAGES})",
+    )
+
     args = parser.parse_args()
+    ocr_lang = args.ocr_lang or OCR_LANGUAGES
+
     try:
         validate_config()
         path = Path(args.path)
-        image_dir = Path(args.image_dir)
-        db_path = args.db_path or CHROMA_PERSIST_DIRECTORY
+
+        # Centralize setup of embeddings and vector store
         embeddings = get_embeddings()
-        vector_store = get_vector_store(embeddings, db_path)
+        db_path = args.db_path or CHROMA_PERSIST_DIRECTORY
+        vector_store = Chroma(
+            collection_name=COLLECTION_NAME,
+            embedding_function=embeddings,
+            persist_directory=db_path,
+        )
+
         if path.is_file():
             if path.suffix.lower() != ".pdf":
                 raise ValueError(f"File is not a PDF: {path}")
-            ingest_pdf_multimodal(path, image_dir, vector_store, args.min_image_dim)
+            ingest_pdf(
+                str(path), vector_store, force_ocr=args.force_ocr, ocr_lang=ocr_lang
+            )
         elif path.is_dir():
-            pdf_files = sorted(path.glob("**/*.pdf"))
-            if not pdf_files:
-                raise ValueError(f"No PDF files found in: {path}")
-            for pdf_file in pdf_files:
-                ingest_pdf_multimodal(
-                    pdf_file, image_dir, vector_store, args.min_image_dim
-                )
+            ingest_directory(
+                str(path), vector_store, force_ocr=args.force_ocr, ocr_lang=ocr_lang
+            )
         else:
-            print(f" Error: Path does not exist: {args.path}", file=sys.stderr)
+            print(f"Error: Path does not exist: {args.path}", file=sys.stderr)
             sys.exit(1)
+
+        # Persist and print final summary
         print("\n---")
-        print("Multimodal ingestion complete.")
-        print(f" Vector store persisted to: {os.path.abspath(db_path)}")
-        print(f" Image files saved under: {os.path.abspath(image_dir)}")
+        print("Ingestion complete.")
+        print(f"Vector store persisted to: {os.path.abspath(db_path)}")
+
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -373,5 +408,7 @@ def main() -> None:
     except Exception as e:
         print(f"Unexpected error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
 if __name__ == "__main__":
     main()
