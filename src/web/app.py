@@ -510,15 +510,45 @@ def ocr_ask():
         else:
             return jsonify({"error": str(exc), "traceback": tb_str}), 500
         
-    rag_ans = results.get("rag_answer", "") if isinstance(results, dict) else str(results)
+    rag_ans    = results.get("rag_answer",    "") if isinstance(results, dict) else str(results)
     no_rag_ans = results.get("no_rag_answer", "") if isinstance(results, dict) else ""
-    
+
+    # ── تحويل شكل الـ chunks من ingest_pdf_OCR إلى ما يتوقعه الـ frontend ──
+    # ingest_pdf_OCR يُرجع:
+    #   { similarity_score, distance, used_in_context, page, source, preview }
+    # الـ frontend يتوقع:
+    #   { rank, score, label, page, source, preview }
+    def _sim_to_label(sim: float) -> str:
+        """تحويل قيمة التشابه إلى label نصي مقروء."""
+        if sim >= 0.85:
+            return "🟢 Excellent"
+        if sim >= 0.70:
+            return "🟡 Good"
+        if sim >= 0.55:
+            return "🟠 Moderate"
+        return "🔴 Weak"
+
+    raw_chunks = results.get("retrieved_chunks", []) if isinstance(results, dict) else []
+    mapped_chunks = [
+        {
+            "rank":    idx + 1,
+            "score":   c.get("similarity_score", 0.0),   # 0-1 cosine similarity
+            "label":   _sim_to_label(c.get("similarity_score", 0.0)),
+            "page":    c.get("page", "?"),
+            "source":  c.get("source", ""),
+            "preview": c.get("preview", ""),
+        }
+        for idx, c in enumerate(raw_chunks)
+    ]
+
+    avg_sim = results.get("overall_similarity_score", 0.0) if isinstance(results, dict) else 0.0
+
     return jsonify({
-        "answer": rag_ans,
-        "rag_answer": rag_ans,
+        "answer":        rag_ans,        # للتوافق مع /api/ask-qna القديم
+        "rag_answer":    rag_ans,
         "no_rag_answer": no_rag_ans,
-        "chunks": results.get("retrieved_chunks", []) if isinstance(results, dict) else [],
-        "avg_similarity": results.get("overall_similarity_score", 0) if isinstance(results, dict) else 0
+        "chunks":        mapped_chunks,
+        "avg_similarity": round(float(avg_sim), 4),
     })
 
 
