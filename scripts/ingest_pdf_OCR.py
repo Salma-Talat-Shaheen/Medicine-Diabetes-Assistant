@@ -28,6 +28,8 @@ Fixes applied vs. the previous version:
   - query_pipeline() now also returns a single overall_similarity_score
     (0-1) summarizing retrieval quality for the question, alongside the
     full per-chunk breakdown - useful for a simple UI indicator.
+  - Added SharedSystemClient cache clearing to prevent 'Could not connect to
+    tenant default_tenant' errors upon concurrent restarts or re-indexing.
 """
 
 import argparse
@@ -97,6 +99,13 @@ def get_embeddings() -> OpenAIEmbeddings:
 
 
 def get_vector_store(embeddings: OpenAIEmbeddings) -> Chroma:
+    # تفريغ الذاكرة المؤقتة لـ Chroma لمنع أخطاء الاتصال بـ default_tenant عند إعادة التحميل
+    try:
+        import chromadb.api.client
+        chromadb.api.client.SharedSystemClient.clear_system_cache()
+    except Exception:
+        pass
+
     return Chroma(
         collection_name=COLLECTION_NAME,
         embedding_function=embeddings,
