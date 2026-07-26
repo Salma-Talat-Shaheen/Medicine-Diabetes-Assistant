@@ -16,9 +16,7 @@ FROM python:3.10-slim
 # Set working directory in container
 WORKDIR /app
 
-# Install system dependencies (include libs required by WeasyPrint)
-# Note: `libgdk-pixbuf2.0-0` is not available on some slim images; use
-# `libgdk-pixbuf-xlib-2.0-0` instead.
+# Install system dependencies (include libs required by WeasyPrint & Tesseract OCR)
 RUN set -ex \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -36,6 +34,9 @@ RUN set -ex \
         pkg-config \
         fonts-dejavu-core \
         ffmpeg \
+        tesseract-ocr \
+        tesseract-ocr-ara \
+        tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
@@ -51,7 +52,6 @@ RUN pip install --no-cache-dir -e .
 EXPOSE 8002
 
 # Set environment variables
-# Point FLASK_APP at the module and app object so the Flask CLI can import it
 ENV FLASK_APP=src.web.app:app
 ENV FLASK_ENV=production
 
