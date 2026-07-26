@@ -2,3 +2,5 @@ medicine-assistant/
 __pycache__/
 *.pyc
 .env
+chroma_db/
+ocr_cache/
