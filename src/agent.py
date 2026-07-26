@@ -285,7 +285,6 @@ Use simple language. Be encouraging and supportive. Avoid medical terminology or
         }
         
         for section, fields in sections.items():
-            # إهمال السلاسل الفارغة أو القيمة None
             section_data = {k: v for k, v in patient_info.items() if k in fields and v not in [None, "", [], {}]}
             if section_data:
                 formatted += f"\n**{section}:**\n"
