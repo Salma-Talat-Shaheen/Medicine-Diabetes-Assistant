@@ -18,7 +18,7 @@ def get_llm() -> ChatOpenAI:
         api_key=settings.OPENROUTER_API_KEY,  # تمرير المفتاح مباشرة
         base_url=settings.OPENROUTER_BASE_URL,
         default_headers={
-            "HTTP-Referer": "https://github.com/ibrhr/Medicine-Assistant",
+            "HTTP-Referer": "https://github.com/Salma-Talat-Shaheen/Medicine-Diabetes-Assistant",
             "X-Title": "Medicine Assistant",
         },
         temperature=0.2,  # خفض القيمة لزيادة الدقة الطبية
