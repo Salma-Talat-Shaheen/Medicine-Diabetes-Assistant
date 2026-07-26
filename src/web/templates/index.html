@@ -22,42 +22,7 @@
     </div>
   </div>
 
-  <!-- ================= بداية قسم اسأل الذكاء الاصطناعي (Q&A Section) ================= -->
-  <div class="py-8">
-    <div class="container mx-auto px-4">
-      <div class="max-w-3xl mx-auto bg-gray-800 rounded-xl p-6 md:p-8 border border-gray-700 shadow-lg text-center">
-        <h3 class="text-2xl font-bold text-gray-100 mb-2">Ask Medicine Assistant 💡</h3>
-        <p class="text-gray-400 text-sm mb-6">Ask any clinical question based on ADA Standards of Care 2025</p>
-        
-        <!-- Input & Button -->
-        <div class="flex flex-col sm:flex-row gap-3">
-          <input type="text" id="userQuestion" 
-                 class="flex-1 bg-gray-900 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors" 
-                 placeholder="e.g., What are the diagnostic criteria for diabetes?">
-          <button type="button" id="askBtn" 
-                  class="bg-primary hover:bg-primary-dark text-white font-semibold px-6 py-3 rounded-lg text-sm transition-colors shadow-sm">
-            Ask AI
-          </button>
-        </div>
 
-        <!-- Spinner -->
-        <div id="loadingSpinner" class="mt-4 hidden text-gray-400 text-sm flex items-center justify-center gap-2">
-          <svg class="animate-spin h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          Searching medical guidelines...
-        </div>
-
-        <!-- Answer Box -->
-        <div id="answerCard" class="mt-6 hidden text-left bg-gray-900/80 rounded-lg p-5 border-l-4 border-primary border-y border-r border-gray-700">
-          <h4 class="text-xs font-bold text-primary uppercase tracking-wider mb-2">💡 Medical Answer:</h4>
-          <div id="answerContent" class="text-gray-200 text-sm leading-relaxed space-y-2"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-  <!-- ================= نهاية قسم اسأل الذكاء الاصطناعي ================= -->
 
   <!-- ================= بداية قسم OCR RAG ================= -->
   <div class="py-8">
@@ -67,7 +32,7 @@
         <!-- Header -->
         <div class="text-center mb-6">
           <h3 class="text-2xl font-bold text-gray-100 mb-1">
-            📄 Ask the Scanned Guideline
+             Ask RAG
           </h3>
           <p class="text-gray-400 text-sm">
             OCR-powered search on the HCEA 2021 Diabetes Guidelines
