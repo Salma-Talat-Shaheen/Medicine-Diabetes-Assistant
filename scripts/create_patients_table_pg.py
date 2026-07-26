@@ -2,13 +2,12 @@
 """
 Create the `Patients` table in a Postgres (Supabase) database.
 
-This script follows the same environment variable names as `src/main.py`:
+This script follows the environment variable names `src/main.py`:
 - `user`, `password`, `host`, `port`, `dbname` (loaded from `.env` via `python-dotenv`).
 
 Usage:
   python3 scripts/create_patients_table_pg.py
 
-If you prefer, set a `DATABASE_URL` env var (Postgres URL) and it will be used.
 """
 import os
 from dotenv import load_dotenv
