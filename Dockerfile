@@ -48,12 +48,9 @@ COPY --from=node_builder /build/src/web/static/css/output.css /app/src/web/stati
 # Install Python dependencies
 RUN pip install --no-cache-dir -e .
 
-# Expose port
-EXPOSE 8002
-
 # Set environment variables
 ENV FLASK_APP=src.web.app:app
 ENV FLASK_ENV=production
 
-# Run the Flask application
-CMD ["python", "-m", "flask", "run", "--host=0.0.0.0", "--port=8002"]
+# Run the Flask application using Gunicorn and Render's dynamic PORT
+CMD gunicorn src.web.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120
