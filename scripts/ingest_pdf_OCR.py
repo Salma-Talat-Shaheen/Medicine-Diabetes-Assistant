@@ -1,8 +1,8 @@
 """
-سكربت معالجة ملفات PDF عبر OCR والاستعلام بـ RAG و No-RAG:
-  1) عمل OCR لملف PDF عند الحاجة واستخراج النصوص.
-  2) تقسيم النصوص ودمجها داخل قاعدة متجهات ChromaDB.
-  3) توفير دوال للاستعلام (Query) ترجع إجابة RAG و No-RAG ودرجات التشابه.
+PDF processing script via OCR and querying with RAG and No-RAG:
+  1) Perform OCR on PDF file when needed and extract text.
+  2) Split text and index into ChromaDB vector store.
+  3) Provide query functions returning RAG, No-RAG answers, and similarity scores.
 """
 
 import argparse
@@ -25,10 +25,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from PIL import Image
 from tqdm import tqdm
 
-# تحميل متغيرات البيئة
+# Load environment variables
 load_dotenv()
 
-# ---- متغيرات البيئة الأساسية ----
+# ---- Core Environment Variables ----
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 CHROMA_PERSIST_DIRECTORY = os.getenv("CHROMA_PERSIST_DIRECTORY", "./chroma_db")
@@ -45,12 +45,12 @@ TOP_K = int(os.getenv("TOP_K", "4"))
 
 def validate_config() -> None:
     if not OPENROUTER_API_KEY:
-        print("تحذير: OPENROUTER_API_KEY غير معرف في متغيرات البيئة.", file=sys.stderr)
+        print("Warning: OPENROUTER_API_KEY is not defined in environment variables.", file=sys.stderr)
     
     if shutil.which("tesseract") is None:
         print(
-            "تحذير: لم يتم العثور على tesseract في النظام. "
-            "إذا لم تكن النصوص مستخرجة مسبقاً في الكاش قد تفشل عملية الـ OCR.",
+            "Warning: tesseract was not found in the system PATH. "
+            "If text is not cached, OCR processing may fail.",
             file=sys.stderr,
         )
 
@@ -58,9 +58,10 @@ def validate_config() -> None:
 def get_embeddings() -> OpenAIEmbeddings:
     if not OPENROUTER_API_KEY:
         raise ValueError("OPENROUTER_API_KEY is not set in environment variables.")
+    
     return OpenAIEmbeddings(
         model="openai/text-embedding-3-small",
-        api_key=lambda: OPENROUTER_API_KEY,  # type: ignore
+        api_key=OPENROUTER_API_KEY,
         base_url=OPENROUTER_BASE_URL,
     )
 
@@ -87,7 +88,7 @@ def ocr_pdf_to_documents(pdf_path: str, ocr_lang: str = OCR_LANGUAGES) -> list:
     cache_path = _ocr_cache_path(pdf_file, ocr_lang)
 
     if cache_path.exists():
-        print(f"↺ استخدام كاش OCR المجهزة مسبقاً: {cache_path.name}")
+        print(f"Using pre-cached OCR data: {cache_path.name}")
         cached_pages = json.loads(cache_path.read_text(encoding="utf-8"))
         return [
             Document(
@@ -97,7 +98,7 @@ def ocr_pdf_to_documents(pdf_path: str, ocr_lang: str = OCR_LANGUAGES) -> list:
             for p in cached_pages
         ]
 
-    print(f"جاري معالجة الـ OCR على الملف: {pdf_file.name}")
+    print(f"Processing OCR on file: {pdf_file.name}")
     pdf_doc = fitz.open(str(pdf_file))
     zoom = OCR_DPI / 72.0
     matrix = fitz.Matrix(zoom, zoom)
@@ -157,7 +158,7 @@ def answer_with_rag(question: str, vector_store: Chroma, top_k: int = TOP_K):
     )
 
     if not results_with_scores:
-        return "لم يتم العثور على سياق مرتبط بالسؤال داخل المستندات.", []
+        return "No relevant context found within the documents.", []
 
     context_parts = []
     scored_chunks = []
@@ -185,10 +186,10 @@ def answer_with_rag(question: str, vector_store: Chroma, top_k: int = TOP_K):
 
 
 def ingest_path(pdf_path: str, ocr_lang: str = OCR_LANGUAGES):
-    """دالة رئيسية لإدخال ومعالجة المستند لربطها بـ Web App"""
+    """Main ingestion function to process documents for the Web App"""
     documents = ocr_pdf_to_documents(pdf_path, ocr_lang=ocr_lang)
     
-    # تقسيم النصوص لضمان أداء أفضل في الاسترجاع
+    # Split text for optimal retrieval performance
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     split_docs = text_splitter.split_documents(documents)
 
@@ -199,7 +200,7 @@ def ingest_path(pdf_path: str, ocr_lang: str = OCR_LANGUAGES):
 
 
 def query_pipeline(question: str, top_k: int = TOP_K):
-    """دالة الاستعلام الرئيسية للربط مع Flask App"""
+    """Main query function for integration with Flask App"""
     embeddings = get_embeddings()
     vector_store = get_vector_store(embeddings)
 
@@ -215,41 +216,41 @@ def query_pipeline(question: str, top_k: int = TOP_K):
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="عمل OCR لملف PDF ثم الإجابة على سؤال مع/بدون RAG"
+        description="Process PDF with OCR and query with RAG vs No-RAG."
     )
-    parser.add_argument("pdf_path", type=str, help="مسار ملف PDF")
-    parser.add_argument("--question", type=str, default=None, help="السؤال المراد طرحه")
-    parser.add_argument("--ocr-lang", type=str, default=OCR_LANGUAGES, help="لغات Tesseract")
-    parser.add_argument("--top-k", type=int, default=TOP_K, help="عدد المقاطع المسترجعة")
+    parser.add_argument("pdf_path", type=str, help="Path to PDF file")
+    parser.add_argument("--question", type=str, default=None, help="Question to ask")
+    parser.add_argument("--ocr-lang", type=str, default=OCR_LANGUAGES, help="Tesseract languages")
+    parser.add_argument("--top-k", type=int, default=TOP_K, help="Number of retrieved chunks")
     args = parser.parse_args()
 
     validate_config()
 
     pdf_path = Path(args.pdf_path)
     if not pdf_path.is_file() or pdf_path.suffix.lower() != ".pdf":
-        print(f"خطأ: الملف غير موجود أو ليس بصيغة PDF: {pdf_path}", file=sys.stderr)
+        print(f"Error: File does not exist or is not a valid PDF: {pdf_path}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"جاري إدخال وفهرسة الملف: {pdf_path.name}")
+    print(f"Ingesting and indexing file: {pdf_path.name}")
     num_chunks = ingest_path(str(pdf_path), ocr_lang=args.ocr_lang)
-    print(f" ✓ تم التقسيم والفهرسة لـ {num_chunks} مقطع بنجاح!")
+    print(f"Successfully chunked and indexed {num_chunks} text segments.")
 
-    question = args.question or input("\nاكتب سؤالك: ").strip()
+    question = args.question or input("\nEnter your question: ").strip()
 
-    print("\n--- الإجابة بدون RAG ---")
+    print("\n--- Answer without RAG ---")
     print(answer_without_rag(question))
 
     embeddings = get_embeddings()
     vector_store = get_vector_store(embeddings)
     rag_ans, chunks = answer_with_rag(question, vector_store, top_k=args.top_k)
 
-    print("\n--- الإجابة مع RAG ---")
+    print("\n--- Answer with RAG ---")
     print(rag_ans)
 
-    print("\n--- درجات التشابه للمقاطع المسترجعة ---")
+    print("\n--- Retrieved Chunks & Similarity Scores ---")
     for i, chunk in enumerate(chunks, start=1):
         print(f"{i}. Score: {chunk['similarity_score']} | Page: {chunk['page']} | Source: {chunk['source']}")
-        print(f"   Preview: {chunk['preview']}...\n")
+        print(f"    Preview: {chunk['preview']}...\n")
 
 
 if __name__ == "__main__":
