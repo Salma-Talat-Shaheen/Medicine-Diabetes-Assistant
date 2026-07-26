@@ -23,25 +23,23 @@ class RAGComponent:
                              Defaults to settings.CHROMA_PERSIST_DIRECTORY.
         """
         self.persist_directory = persist_directory or settings.CHROMA_PERSIST_DIRECTORY
-        # Using OpenRouter (OpenAI-compatible) embeddings via LangChain
-        # Model: `openai/text-embedding-3-small`
         settings.validate()
+        
+        # تمرير المفتاح كـ string مباشر بدلاً من lambda
         self.embeddings = OpenAIEmbeddings(
             model="openai/text-embedding-3-small",
-            api_key=lambda: settings.OPENROUTER_API_KEY,
+            api_key=settings.OPENROUTER_API_KEY,
             base_url=settings.OPENROUTER_BASE_URL,
         )
         self._vector_store: Optional[Chroma] = None
 
     @property
-    def vector_store(self) -> Chroma:
-        """Get or create the vector store."""
+    def vector_store(self) -> Optional[Chroma]:
+        """Get or create the vector store safely."""
         if self._vector_store is None:
             if not os.path.exists(self.persist_directory):
-                raise FileNotFoundError(
-                    f"Chroma persist directory not found: {self.persist_directory}. "
-                    "Please run the ingestion script first."
-                )
+                print(f"[RAG Warning] Chroma persist directory not found at: {self.persist_directory}")
+                return None
             try:
                 self._vector_store = Chroma(
                     collection_name=settings.COLLECTION_NAME,
@@ -49,17 +47,21 @@ class RAGComponent:
                     persist_directory=self.persist_directory,
                 )
             except Exception as e:
-                raise RuntimeError(f"Failed to load Chroma vector store: {e}") from e
+                print(f"[RAG Error] Failed to load Chroma vector store: {e}")
+                return None
         return self._vector_store
 
-    def get_retriever(self) -> VectorStoreRetriever:
+    def get_retriever(self) -> Optional[VectorStoreRetriever]:
         """
         Get a retriever for the vector store.
 
         Returns:
-            VectorStoreRetriever configured with the current settings.
+            VectorStoreRetriever configured with current settings or None.
         """
-        return self.vector_store.as_retriever(
+        vs = self.vector_store
+        if vs is None:
+            return None
+        return vs.as_retriever(
             search_type="similarity",
             search_kwargs={"k": settings.TOP_K_RESULTS},
         )
@@ -70,14 +72,19 @@ class RAGComponent:
 
         Args:
             query: The search query.
-            k: Optional number of results to return. If None, uses the
-               configured `settings.TOP_K_RESULTS`.
+            k: Optional number of results to return.
 
         Returns:
-            List of relevant documents.
+            List of relevant documents or empty list if vector store is unavailable.
         """
+        vs = self.vector_store
+        if vs is None:
+            print("[RAG Warning] Vector store is not available. Returning empty results.")
+            return []
+            
         top_k = k if (k is not None) else settings.TOP_K_RESULTS
-        return self.vector_store.similarity_search(
-            query,
-            k=top_k,
-        )
+        try:
+            return vs.similarity_search(query, k=top_k)
+        except Exception as e:
+            print(f"[RAG Error] Error during similarity search: {e}")
+            return []
