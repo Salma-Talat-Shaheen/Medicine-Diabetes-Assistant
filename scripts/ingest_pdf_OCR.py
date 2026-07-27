@@ -1,30 +1,11 @@
 """
 ingest_pdf_OCR.py  —  Production-safe OCR-RAG pipeline for Render.com
 ======================================================================
-
-Root cause of the "re-OCR every restart" bug
----------------------------------------------
-Render free-tier containers use an ephemeral filesystem: every restart wipes
-./ocr_cache/ and ./chroma_db/ unless they are on a mounted Persistent Disk.
-The old code cached OCR to disk and checked disk for "already indexed" —
-both failed on restart, causing 8-minute OCR re-runs on every boot.
-
-Fix: collection.count() as the single gatekeeper
--------------------------------------------------
+ 
 Before running OCR we call collection.count().
   > 0  → already indexed, skip OCR entirely (fast path, ~1 second).
   == 0 → run OCR once, index, persist.
 
-For this to survive Render restarts you MUST set CHROMA_PERSIST_DIRECTORY
-to a path on a mounted Persistent Disk (e.g. /data/chroma_db).
-If you use the default ./chroma_db on the ephemeral disk, OCR will
-re-run on every restart — that is a deployment config issue, not a code bug.
-
-_type Chroma error fix
------------------------
-Drop + recreate the affected collection instead of wiping the whole directory.
-
-Public API (drop-in compatible with app.py)
 -------------------------------------------
   validate_config()
   get_embeddings()
