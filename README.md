@@ -212,11 +212,9 @@ Contributions, issues, and feature requests are welcome!
 
 This project was built with dedication by:
 
-| Contributor | Role | 
-|---|---|
-| **Salma Shaheen** | Development | 
-| **Hebatallah AbuHarb** | Development | 
-| **Zahraa Alderawi** | Development | 
+**Salma Shaheen** 
+**Hebatallah AbuHarb** 
+**Zahraa Alderawi** 
 
 ---
 
