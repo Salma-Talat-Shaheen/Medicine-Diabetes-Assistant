@@ -212,11 +212,11 @@ Contributions, issues, and feature requests are welcome!
 
 This project was built with dedication by:
 
-| Contributor | Role | IDs |
+| Contributor | Role | 
 |---|---|---|
-| **Salma Shaheen** | Development | 220210654 |
-| **Hebatallah AbuHarb** | Development | 220210448 |
-| **Zahraa Alderawi** | Development | 220221428 |
+| **Salma Shaheen** | Development | 
+| **Hebatallah AbuHarb** | Development | 
+| **Zahraa Alderawi** | Development | 
 
 ---
 
